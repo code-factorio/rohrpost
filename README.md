@@ -5,17 +5,31 @@
 `rohrpost` keeps work items as files in the repository they belong to. Coding
 agents create, claim, update and close them without leaving the repo. The repo
 is canonical; GitHub, Jira, GitLab and Linear are projections that get synced.
-The binary is **`rp`**.
 
-The design assumption is that ~95% of all reads and writes come from agents, not
-humans — every trade-off resolves in favour of machine ergonomics. The event log
-is the single source of truth; everything else is derived and disposable.
+The binary is **`rp`**. The design assumption is that ~95% of all reads and
+writes come from agents, not humans — every trade-off resolves in favour of
+machine ergonomics. The event log is the single source of truth; everything else
+is derived and disposable.
 
 ## Status
 
-Alpha — the project scaffolding, the id scheme and the event-envelope primitives
-are in place; the store, fold and sync layers are under active development. See
-[`docs/spec/ROHRPOST-SPEC.md`](docs/spec/ROHRPOST-SPEC.md) for the full design.
+**Phase 0 — complete.** The store, fold, lock, ids and the full ticket lifecycle
+(`init`/`new`/`ready`/`show`/`claim`/`set`/`close`/`drop`/`comment`/`list`/
+`tree`/`log`), plus `doctor` and `compact`, are implemented and pass the full
+quality gate. A runner can work a ticket end to end.
+
+**Phase 1 (sync, first cut) — implemented.** The shadow merge base, the
+three-way per-field merge (with a real `git merge-file` text merge for bodies),
+the GitHub provider, and the `sync`/`conflicts`/`resolve` commands are in. The
+GitHub provider **prefers the `gh` CLI** (pre-authenticated in agent
+environments) and falls back to the REST API via `httpx`. First-cut scope is
+scalar fields (`title`/`body`/`status`); set fields like `labels` need a
+set-wise three-way merge and are the follow-on. Jira/Linear/GitLab providers are
+not yet built.
+
+See [`docs/spec/ROHRPOST-SPEC.md`](docs/spec/ROHRPOST-SPEC.md) for the full design,
+[`docs/users/`](docs/users/) for usage, and
+[`docs/maintainers/`](docs/maintainers/) for internals.
 
 ## Requirements
 
@@ -25,89 +39,101 @@ are in place; the store, fold and sync layers are under active development. See
 ## Quick start
 
 ```bash
-# install the project + the dev toolchain into an isolated .venv
-uv sync
-
-# the binary is runnable immediately
-uv run rp --version
-
-# format & lint
-uv run ruff format
-uv run ruff check
-
-# run the test suite with coverage
-uv run pytest
+uv sync                 # install the project + dev toolchain
+uv run rp init          # scaffold .rohrpost/ in this repo (proposes a prefix)
+uv run rp new "Fix token refresh race" --type bug -p 1 --label auth
+uv run rp ready         # the actionable work queue
+uv run rp show <id>     # bare id or PREFIX-id both work
 ```
 
 `uvx rohrpost` runs the tool with no prerequisite toolchain — which matters
-because agents invoke it from bare containers.
+because agents invoke this from bare containers.
+
+### A ticket end to end
+
+```bash
+rp new "Blocker" --json                      # create, print machine-readable JSON
+rp new "Real work" --blocked-by <id> -p 0    # depends on the blocker
+rp ready                                     # empty: "Real work" is blocked
+rp close <blocker-id> --reason "shipped"     # unblock it
+rp ready                                     # now shows "Real work"
+rp claim <id>                                # -> in_progress, stamps the actor
+rp comment <id> "retried with backoff"
+rp close <id> --reason "done"
+```
+
+Every command takes `--json`. The log is the only thing that accumulates state;
+`rp doctor` checks integrity, `rp log` shows the raw event history.
+
+## How it works
+
+Everything starts as an append-only event in `.rohrpost/log.jsonl`:
+
+```jsonc
+{"id":"01K2X8P4RQ7YFZ3M9NVB6TDHWC","ts":"2026-08-11T09:20:14.221Z",
+ "ticket":"a1b2c3","op":"set","actor":"runner/claude-code@b-3","set":{"status":"in_progress"}}
+```
+
+Tickets are a **fold** over that log — deduplicated by event id, sorted by
+`(ts, id)`, replayed field-by-field with **per-field last-write-wins**. Two
+runners updating `status` and `priority` on the same ticket concurrently both
+win. The fold is deterministic and disposable (`tickets.jsonl` is gitignored and
+regenerated on demand).
+
+One write path: mutations go through `rp`, never by hand-editing the log.
 
 ## Project layout
 
 ```
 src/rohrpost/
-├── __init__.py        # public API surface
-├── ids.py             # ticket ids + ULIDs (the load-bearing id scheme)
-├── events.py          # append-only event envelope (msgspec) + JSONL codec
-├── exceptions.py      # domain error hierarchy
-└── cli.py             # the `rp` entry point
-```
-
-### The event log is truth
-
-Everything starts as an append-only event in `.rohrpost/log.jsonl`. Tickets are a
-*fold* over that log, regenerated on demand and disposable. One write path:
-mutations go through `rp`, never by hand-editing the log.
-
-```python
-from rohrpost.events import Event, encode, decode_line
-from rohrpost.ids import new_ticket_id, new_ulid
-
-event = Event(
-    id=new_ulid(),
-    ts="2026-08-11T09:20:14.221Z",
-    ticket=f"FAC-{new_ticket_id()}",
-    op="set",
-    actor="runner/claude-code@b-3",
-    set={"status": "in_progress"},
-)
-line = encode(event)  # one JSONL line
-decode_line(line) is event  # round-trips
+├── ids.py        # ticket ids (base32) + ULIDs — the load-bearing id scheme
+├── events.py     # append-only event envelope (msgspec) + JSONL codec
+├── store.py      # the log: advisory flock + O_APPEND, read archive+log
+├── fold.py       # events -> tickets: dedupe, sort, per-field LWW, derived state
+├── config.py     # .rohrpost/config.toml (project prefix, remotes)
+├── paths.py      # the .rohrpost/ layout + repo discovery
+├── api.py        # the one write path: create/set/claim/close/... (idempotent)
+├── merge.py      # sync: three-way per-field merge + git merge-file for bodies
+├── shadow.py     # sync: the shadow merge base (shadow/<remote>/<ref>.json)
+├── sync.py       # sync: the round — fetch/merge/apply/push/rewrite-shadow
+├── providers/    # sync providers; github.py (gh-preferred, httpx fallback)
+├── doctor.py     # rp doctor — integrity + config checks
+├── compact.py    # rp compact — archive terminal tickets, truncate the log
+└── cli.py        # the `rp` entry point (--json, NO_COLOR)
 ```
 
 ## Tooling
 
-A deliberate, layered quality gate is wired up. Fast checks run on every
-commit; the full suite runs on push and in CI.
+A deliberate, layered quality gate runs on every push and in CI. Fast checks run
+on commit; the full suite runs on push.
 
 | Layer         | Tool(s)                                   |
 | ------------- | ----------------------------------------- |
 | Format & lint | `ruff` (format + check)                   |
 | Types         | `ty`, `mypy`, `pyright`                   |
 | Security      | `bandit`                                  |
-| Structure     | `pyscn` (DRY / YAGNI)                     |
+| Structure     | `pyscn` (complexity / deadcode / clones)  |
 | Tests         | `pytest`, `coverage`, `hypothesis`        |
 | Complexity    | `radon`, `xenon` (cyclomatic / MI)        |
 | Mutation      | `mutmut`                                  |
 
-Run everything locally:
-
 ```bash
 make help        # list available targets
-make check       # the full deterministic gate (lint + types + tests + metrics)
+make check       # the full deterministic gate
 make mutation    # mutation testing (slow; not part of `make check`)
 ```
 
 ### Pre-commit hooks
 
 ```bash
-uv run pre-commit install   # installs both commit- and pre-push-stage hooks
+uv run pre-commit install   # commit- and pre-push-stage hooks
 ```
 
 ## Contributing
 
-This project uses the layered tooling above. Open an issue first for sizeable
-changes so we can align on direction before code is written.
+Open an issue first for sizeable changes so we can align on direction before code
+is written. Keep the event envelope strict and write events generously — it is
+the one load-bearing decision; field names and CLI shape are cheap to change.
 
 ## License
 

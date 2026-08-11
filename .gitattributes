@@ -1,0 +1,4 @@
+.rohrpost/log.jsonl          merge=union
+.rohrpost/archive/*.jsonl    merge=union
+.rohrpost/shadow/**/*.json   merge=ours
+.rohrpost/tickets.jsonl      linguist-generated

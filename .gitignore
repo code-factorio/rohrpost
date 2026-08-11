@@ -66,3 +66,4 @@ ipython_config.py
 # OS
 .DS_Store
 Thumbs.db
+.rohrpost/tickets.jsonl

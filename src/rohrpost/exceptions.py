@@ -13,3 +13,15 @@ class IdError(RohrpostError):
 
 class StoreError(RohrpostError):
     """Raised on log/store integrity failures (parse errors, lock contention, ...)."""
+
+
+class ConfigError(RohrpostError):
+    """Raised when ``config.toml`` is missing, malformed or has invalid values."""
+
+
+class TicketError(RohrpostError):
+    """Raised for ticket-level problems: not found, bad status, cycle, etc."""
+
+
+class TicketNotFoundError(TicketError):
+    """Raised when a referenced ticket id does not exist in the folded log."""
