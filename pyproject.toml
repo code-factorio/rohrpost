@@ -1,0 +1,174 @@
+[project]
+name = "rohrpost"
+version = "0.1.0"
+description = "Git-native ticket system for agentic coding workflows. The repo is canonical; trackers are projections."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "code-factorio" },
+]
+requires-python = ">=3.14"
+keywords = ["agent", "automation", "code-factory", "ticket", "issue-tracker", "git", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Software Development :: Bug Tracking",
+    "Typing :: Typed",
+]
+dependencies = [
+    # JSONL encode/decode with schema validation: struct types + line-oriented speed.
+    "msgspec>=0.19",
+    # One HTTP client for every sync provider (GitHub, GitLab, Jira, Linear).
+    "httpx>=0.28",
+]
+
+[project.urls]
+Homepage = "https://github.com/code-factorio/rohrpost"
+Repository = "https://github.com/code-factorio/rohrpost"
+Issues = "https://github.com/code-factorio/rohrpost/issues"
+Changelog = "https://github.com/code-factorio/rohrpost/releases"
+
+# The binary. `uvx rohrpost` / `rp` runs with no prerequisite toolchain.
+[project.scripts]
+rp = "rohrpost.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    # Test stack
+    "pytest>=8.4",
+    "pytest-cov>=6.2",
+    "coverage[toml]>=7.9",
+    "hypothesis>=6.40",
+    # Formatting & linting
+    "ruff>=0.12",
+    # Type checking (three independent engines, by intent)
+    "mypy>=1.18",
+    "pyright>=1.1.405",
+    "ty>=0.0.1a21",
+    # Security & structural analysis
+    "bandit>=1.8",
+    "pyscn>=0.1.2",
+    # Complexity & maintainability metrics
+    "radon>=6.0",
+    "xenon>=0.9",
+    # Mutation testing
+    "mutmut>=3",
+    # Workflow
+    "pre-commit>=4.3",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff: formatter + linter
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["src", "tests"]
+extend-exclude = [".venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "C4",     # flake8-comprehensions
+    "PERF",   # perflint
+    "PT",     # flake8-pytest-style
+    "N",      # pep8-naming
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "E501",   # line length is enforced by the formatter
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.4"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config --showlocals"
+filterwarnings = ["error"]
+
+# ---------------------------------------------------------------------------
+# coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["rohrpost"]
+branch = true
+relative_files = true
+
+[tool.coverage.paths]
+source = ["src/rohrpost", "*/site-packages/rohrpost"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@(abc\\.)?abstractmethod",
+]
+fail_under = 85
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/rohrpost", "tests"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = "rohrpost.*"
+disallow_any_generics = true
+
+# ---------------------------------------------------------------------------
+# pyright
+# ---------------------------------------------------------------------------
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["**/.venv", "**/build", "**/dist"]
+pythonVersion = "3.14"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = "none"
+
+# ---------------------------------------------------------------------------
+# bandit
+# ---------------------------------------------------------------------------
+[tool.bandit]
+targets = ["src"]
+exclude_dirs = ["tests", ".venv", "build", "dist"]
+skips = []  # nothing to skip yet.
+
+# ---------------------------------------------------------------------------
+# radon (maintainability index & cyclomatic complexity) & xenon
+# ---------------------------------------------------------------------------
+# Neither tool reads pyproject.toml; thresholds are passed as CLI flags in the
+# Makefile (`make complexity`) and the CI workflow.
+
+# ---------------------------------------------------------------------------
+# mutmut (mutation testing)
+# ---------------------------------------------------------------------------
+[tool.mutmut]
+source_paths = ["src/rohrpost"]
+pytest_add_cli_args_test_selection = ["tests/"]
