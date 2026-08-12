@@ -9,8 +9,9 @@ from typing import Any
 import httpx
 import pytest
 
-from rohrpost import api, shadow, sync
+from rohrpost import api, shadow, store, sync
 from rohrpost.config import Config
+from rohrpost.events import SYNC_TICKET
 from rohrpost.exceptions import TicketError
 from rohrpost.providers.github import GitHubProvider
 
@@ -102,7 +103,10 @@ def test_sync_rewrites_shadow(tmp_repo: Path) -> None:
     assert snap is not None
     assert snap["title"] == "remote-edit"
     assert [event.op for event in api.event_log(tmp_repo)].count("synced") == 1
-    assert all(event.op != "synced" for event in api.event_log(tmp_repo, tid))
+    watermarks = [event for event in store.read_events(tmp_repo) if event.op == "synced"]
+    assert len(watermarks) == 1
+    assert watermarks[0].ticket == SYNC_TICKET
+    assert watermarks[0].ticket != tid
 
 
 # ---------------------------------------------------------------------------
