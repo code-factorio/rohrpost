@@ -158,7 +158,7 @@ Every event records who did it under one of three namespaces:
 
 ```bash
 rp doctor        # log parses; no dup ids; refs resolve; no cycles;
-                 # gitattributes rules; snapshot matches a fresh fold
+                 # gitattributes/shadow rules; credentials; fresh snapshot
 rp compact       # archive tickets terminal for >90d; main branch only
 ```
 
