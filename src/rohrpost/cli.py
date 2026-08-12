@@ -325,11 +325,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         repo,
         args.title,
         type=args.type if args.type is not None else str(defaults.get("type", "task")),
-        priority=(
-            args.priority
-            if args.priority is not None
-            else _template_priority(defaults)
-        ),
+        priority=(args.priority if args.priority is not None else _template_priority(defaults)),
         labels=args.label if args.label is not None else _template_list(defaults, "labels"),
         blocked_by=(
             args.blocked_by

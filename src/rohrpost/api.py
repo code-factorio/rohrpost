@@ -196,28 +196,48 @@ def _template_values(raw: dict[str, object]) -> dict[str, object]:
 def _normalise_template_values(values: dict[str, object]) -> dict[str, object]:
     """Validate and normalise values read from a template file."""
     result = dict(values)
-    if "priority" in result and (
-        isinstance(result["priority"], bool) or not isinstance(result["priority"], int)
-    ):
-        raise TicketError("template priority must be an integer")
-    for field in ("labels", "blocked_by"):
-        if field not in result:
-            continue
-        cleaned = _template_strings(field, result[field])
-        result[field] = (
-            [_normalise_structural(item) for item in cleaned]
-            if field == "blocked_by"
-            else cleaned
-        )
-    for field in ("title", "type", "status", "assignee", "body"):
-        if field in result and not isinstance(result[field], str):
-            raise TicketError(f"template {field} must be a string")
-    if "parent" in result:
-        parent = result["parent"]
-        if not isinstance(parent, str):
-            raise TicketError("template parent must be a ticket id")
-        result["parent"] = _normalise_structural(parent)
+    _validate_template_priority(result)
+    _normalise_template_sets(result)
+    _validate_template_scalars(result)
+    _normalise_template_parent(result)
     return result
+
+
+def _validate_template_priority(values: dict[str, object]) -> None:
+    """Validate the optional priority value in template defaults."""
+    if "priority" not in values:
+        return
+    priority = values["priority"]
+    if isinstance(priority, bool) or not isinstance(priority, int):
+        raise TicketError("template priority must be an integer")
+
+
+def _normalise_template_sets(values: dict[str, object]) -> None:
+    """Validate and normalise labels and dependency lists."""
+    for field in ("labels", "blocked_by"):
+        if field not in values:
+            continue
+        cleaned = _template_strings(field, values[field])
+        values[field] = (
+            [_normalise_structural(item) for item in cleaned] if field == "blocked_by" else cleaned
+        )
+
+
+def _validate_template_scalars(values: dict[str, object]) -> None:
+    """Validate optional scalar string values in template defaults."""
+    for field in ("title", "type", "status", "assignee", "body"):
+        if field in values and not isinstance(values[field], str):
+            raise TicketError(f"template {field} must be a string")
+
+
+def _normalise_template_parent(values: dict[str, object]) -> None:
+    """Validate and normalise an optional parent ticket id."""
+    if "parent" not in values:
+        return
+    parent = values["parent"]
+    if not isinstance(parent, str):
+        raise TicketError("template parent must be a ticket id")
+    values["parent"] = _normalise_structural(parent)
 
 
 def _template_strings(field: str, value: object) -> list[str]:
@@ -824,11 +844,7 @@ def event_log(rohrpost_dir: Path, ticket_ref: str | None = None) -> list[Event]:
     events = store.read_events(rohrpost_dir)
     if ticket_ref is not None:
         tid = _normalise_structural(ticket_ref)
-        events = [
-            e
-            for e in events
-            if e.op != "synced" and _normalise_structural(e.ticket) == tid
-        ]
+        events = [e for e in events if e.op != "synced" and _normalise_structural(e.ticket) == tid]
     events.sort(key=lambda e: (e.ts, e.id))
     return events
 
@@ -883,10 +899,10 @@ __all__ = [
     "event_log",
     "init_repo",
     "link_remote",
-    "load_repo_config",
-    "load_tickets_map",
-    "load_template",
     "list_tickets",
+    "load_repo_config",
+    "load_template",
+    "load_tickets_map",
     "parse_assignment",
     "propose_prefix",
     "ready_tickets",
