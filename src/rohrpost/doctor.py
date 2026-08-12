@@ -219,19 +219,27 @@ def _github_authenticated(remote_config: dict[str, object]) -> bool:
     """Verify a GitHub environment token or the local ``gh`` authentication state."""
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("ROHRPOST_GITHUB_TOKEN")
     if token and token.strip():
-        base_url = str(remote_config.get("url", "https://api.github.com")).rstrip("/")
-        try:
-            response = httpx.get(
-                f"{base_url}/user",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {token.strip()}",
-                },
-                timeout=10.0,
-            )
-        except httpx.HTTPError:
-            return False
-        return response.is_success
+        return _github_token_authenticated(token.strip(), remote_config)
+    return _gh_cli_authenticated()
+
+
+def _github_token_authenticated(token: str, remote_config: dict[str, object]) -> bool:
+    base_url = str(remote_config.get("url", "https://api.github.com")).rstrip("/")
+    try:
+        response = httpx.get(
+            f"{base_url}/user",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+            },
+            timeout=10.0,
+        )
+    except httpx.HTTPError:
+        return False
+    return response.is_success
+
+
+def _gh_cli_authenticated() -> bool:
     if shutil.which("gh") is None:
         return False
     try:
