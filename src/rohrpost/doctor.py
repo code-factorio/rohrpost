@@ -21,8 +21,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rohrpost import paths, shadow, store
-from rohrpost.config import ConfigError, load_config
 from rohrpost.events import Event
+from rohrpost.config import load_config
+from rohrpost.exceptions import ConfigError
 from rohrpost.fold import _read_snapshot, find_cycle, fold_all
 
 

@@ -136,11 +136,15 @@ def _normalise_structural(value: str) -> str:
 
 
 def load_template(rohrpost_dir: Path, name: str) -> dict[str, object]:
-    """Load ticket defaults from ``templates/<name>.toml``.
+    """Load and normalise ticket defaults from ``templates/<name>.toml``."""
+    path = _template_path(rohrpost_dir, name)
+    raw = _read_template(path, name)
+    values = _template_values(raw)
+    return _normalise_template_values(values)
 
-    Defaults may live at the top level or under ``[defaults]``, ``[fields]`` or
-    ``[ticket]``. Command-line values are applied by the CLI after loading.
-    """
+
+def _template_path(rohrpost_dir: Path, name: str) -> Path:
+    """Resolve a template name without allowing paths outside the template directory."""
     requested = name.strip()
     if not requested:
         raise TicketError("template name must be non-empty")
@@ -154,7 +158,11 @@ def load_template(rohrpost_dir: Path, name: str) -> dict[str, object]:
         raise TicketError("template path must stay under .rohrpost/templates")
     if not path.is_file():
         raise TicketError(f"no such template: {name}")
+    return path
 
+
+def _read_template(path: Path, name: str) -> dict[str, object]:
+    """Read a TOML template and convert parse/read failures to domain errors."""
     try:
         with path.open("rb") as fh:
             raw = tomllib.load(fh)
@@ -162,7 +170,11 @@ def load_template(rohrpost_dir: Path, name: str) -> dict[str, object]:
         raise TicketError(f"invalid template {name!r}: {exc}") from exc
     except OSError as exc:
         raise TicketError(f"cannot read template {name!r}: {exc}") from exc
+    return raw
 
+
+def _template_values(raw: dict[str, object]) -> dict[str, object]:
+    """Collect supported top-level and sectioned template values."""
     values = {key: value for key, value in raw.items() if key in _TEMPLATE_FIELDS}
     for section_name in ("defaults", "fields", "ticket"):
         section = raw.get(section_name)
@@ -170,12 +182,15 @@ def load_template(rohrpost_dir: Path, name: str) -> dict[str, object]:
             continue
         if not isinstance(section, dict):
             raise TicketError(f"template section [{section_name}] must be a table")
-        values.update(section)
+        for key, value in section.items():
+            if not isinstance(key, str):
+                raise TicketError(f"template section [{section_name}] has a non-string field")
+            values[key] = value
 
     unknown = sorted(set(values) - _TEMPLATE_FIELDS)
     if unknown:
         raise TicketError(f"unknown template field(s): {', '.join(unknown)}")
-    return _normalise_template_values(values)
+    return values
 
 
 def _normalise_template_values(values: dict[str, object]) -> dict[str, object]:
@@ -188,11 +203,7 @@ def _normalise_template_values(values: dict[str, object]) -> dict[str, object]:
     for field in ("labels", "blocked_by"):
         if field not in result:
             continue
-        value = result[field]
-        items = value if isinstance(value, list) else [value]
-        if not all(isinstance(item, str) and item.strip() for item in items):
-            raise TicketError(f"template {field} must contain non-empty strings")
-        cleaned = [item.strip() for item in items]
+        cleaned = _template_strings(field, result[field])
         result[field] = (
             [_normalise_structural(item) for item in cleaned]
             if field == "blocked_by"
@@ -207,6 +218,17 @@ def _normalise_template_values(values: dict[str, object]) -> dict[str, object]:
             raise TicketError("template parent must be a ticket id")
         result["parent"] = _normalise_structural(parent)
     return result
+
+
+def _template_strings(field: str, value: object) -> list[str]:
+    """Validate and trim a scalar or list of template strings."""
+    items: list[object] = value if isinstance(value, list) else [value]
+    cleaned: list[str] = []
+    for item in items:
+        if not isinstance(item, str) or not item.strip():
+            raise TicketError(f"template {field} must contain non-empty strings")
+        cleaned.append(item.strip())
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -861,10 +883,10 @@ __all__ = [
     "event_log",
     "init_repo",
     "link_remote",
-    "load_template",
-    "list_tickets",
     "load_repo_config",
     "load_tickets_map",
+    "load_template",
+    "list_tickets",
     "parse_assignment",
     "propose_prefix",
     "ready_tickets",
