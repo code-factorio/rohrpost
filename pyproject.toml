@@ -154,6 +154,8 @@ exclude = ["**/.venv", "**/build", "**/dist"]
 pythonVersion = "3.14"
 typeCheckingMode = "standard"
 reportMissingTypeStubs = "none"
+venvPath = "."
+venv = ".venv"
 
 # ---------------------------------------------------------------------------
 # bandit
