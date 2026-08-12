@@ -1,0 +1,10 @@
+# Rohrpost project configuration. Committed; safe to hand-edit.
+# The prefix is DISPLAY-ONLY: it never enters the event log, so
+# renaming it here re-renders every ticket id with no migration.
+
+[project]
+prefix = "RP"
+
+[remotes.github]
+url = "https://api.github.com"
+repo = "code-factorio/rohrpost"

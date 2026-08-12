@@ -162,7 +162,7 @@ One JSON object per line. Append-only. Never rewritten except by `rp compact`.
 {
   "id":     "01K2X8P4RQ7YFZ3M9NVB6TDHWC",  // ULID
   "ts":     "2026-08-11T09:20:14.221Z",     // RFC 3339, UTC, ms precision
-  "ticket": "RP-a1b2c3",
+  "ticket": "a1b2c3",                       // bare id — the display prefix never enters the log (§5.1)
   "op":     "set",                          // see below
   "actor":  "runner/claude-code@b-3",       // or "user/<git email>", "remote/jira"
   "set":    { "status": "in_progress" }     // op-dependent payload
@@ -335,9 +335,28 @@ operation in the system that can lose data if run carelessly.
 | Duplicate events after merge | Dropped by `id` during fold |
 | Stale `tickets.jsonl` | Regenerated when mtime is older than `log.jsonl` |
 
-Each append is a single `write()` of one line under `O_APPEND`, which is atomic on
-local filesystems for writes below `PIPE_BUF`. Lines exceeding that (long bodies) go
-through the lock. Phase 2's sidecar bodies remove the problem entirely.
+Each append is one `write()` of one line under `O_APPEND`. On Linux a buffered
+`write()` to a regular file holds the inode lock for its whole duration, so a *single*
+`O_APPEND` write is atomic at any size — concurrent appends do not interleave, with or
+without the advisory lock. This was confirmed by **E2**, which saw no corruption
+without the lock even at 64 KB. `PIPE_BUF` is irrelevant here: it governs pipes and
+FIFOs, not regular files, and is not the reason appends are safe.
+
+The advisory lock is retained anyway, for three reasons — none of them single-append
+integrity:
+
+- **Portability.** POSIX guarantees only that the file-offset *update* is atomic, not
+  the write itself, and NFS cannot do atomic append at all — over NFS two appends can
+  interleave. The lock restores the Linux guarantee on filesystems that lack it.
+- **Multi-step writes.** Compaction rewrites the whole log and relocates events into
+  archive files — not a single `O_APPEND` write, so it holds the lock to stay serialised.
+  (`tickets.jsonl` is a different case: it is rebuilt from the fold by an atomic
+  temp-rename, so it needs no lock.)
+- **Short writes.** `write()` may return fewer bytes than requested, splitting one
+  logical append across two calls and collapsing the single-write argument above.
+  `store.append_event` treats a short write as fatal — it rolls back the partial line
+  and raises rather than resuming — so the invariant holds; the lock is the backstop if
+  it ever did not.
 
 ---
 
@@ -374,7 +393,8 @@ them; `rp resolve <id> --take local|remote` clears them.
 
 Prose is the one field where per-field LWW is unacceptable — it throws away real
 human writing. Merge bodies with a genuine three-way text merge by shelling out to
-`git merge-file --stdin` (present wherever Rohrpost runs, well-tested, no dependency).
+`git merge-file -p` over three temp files (present wherever Rohrpost runs, well-tested,
+no dependency).
 On conflict, keep the markers in the body and flag as above.
 
 ### 8.4 Sync round
@@ -399,7 +419,7 @@ idempotent. The reverse ordering loses data.
 
 | Remote | Access | Notes |
 |---|---|---|
-| GitHub | REST via `httpx` | **Build first** — simplest auth, fastest feedback |
+| GitHub | `gh` CLI preferred, `httpx` fallback | **Build first** — `gh` reuses the runner's auth; `httpx` covers hosts without `gh` |
 | GitLab | `python-gitlab` | Mature |
 | Jira | `jira` or REST | Field mapping is the work; custom fields vary per install |
 | Linear | GraphQL via `httpx` | No Python SDK. Direct GraphQL is an afternoon |
@@ -434,9 +454,10 @@ A runner records why it retried, a human records a caveat. That is all.
 rp comment RP-a1b2 "retried with backoff, still 429s"
 ```
 
-Appended as a `comment` event, folded into a `comments` list on the ticket, returned
-by `rp show` (last 10) and `rp comments <id>` (all). No threading, no anchors, no
-resolution state, no sync in either direction.
+Appended as a `comment` event, folded into a `comments` list on the ticket. Text output
+surfaces them via `rp show --include notes` (last 10); `rp show --json` returns the full
+list, as does `rp comments <id>`. The default `rp show` (summary + body) omits notes. No
+threading, no anchors, no resolution state, no sync in either direction.
 
 ### 9.1 What Rohrpost does not do
 
@@ -523,14 +544,21 @@ tube for >14d"* is more memorable than "3 stale tickets", and nobody has to type
   toolchain, which matters because agents invoke this from bare containers.
 - **`msgspec`** for JSONL encode/decode with schema validation. Substantially faster
   than pydantic for line-oriented parsing and gives struct types for free.
-- **`httpx`** for all providers. One client, sync API, explicit timeouts.
+- **`httpx`** for providers that speak HTTP directly. One client, sync API, explicit
+  timeouts. GitHub prefers the `gh` CLI (reusing the runner's auth) and falls back to
+  `httpx` (§8.5).
 - **`fcntl.flock`** for the advisory lock. No dependency, correct on Linux and macOS.
-- Stdlib `secrets` + `base64` for ids; a small ULID helper rather than a dependency.
+- Stdlib `secrets` for entropy and a small hand-rolled base32 encoder for ids; a small
+  ULID helper rather than a dependency.
 
-Performance envelope: 3 000 tickets ≈ 30 000 events ≈ 6 MB. A full fold with msgspec
-is single-digit milliseconds. **No index, no cache invalidation, no staleness
-protocol** — `tickets.jsonl` exists only to avoid re-folding on every CLI invocation
-and can be deleted at any moment.
+Performance envelope: 3 000 tickets ≈ 30 000 events ≈ 6 MB. A *cold* full fold measures
+~109 ms — apply-bound: ~85 ms replaying 30 000 events (~2.8 µs/event); body size adds
+only ~8 ms across 200 B → 2 KB (see §13.2, signal D4). **No index, no cache
+invalidation, no staleness protocol** — `tickets.jsonl` exists to avoid paying that fold
+on every CLI invocation. It remains regenerable and disposable in principle (delete it
+and it is rebuilt from the log), but in practice the agent hot loop depends on the
+snapshot: at ~109 ms per cold fold, re-folding on every `rp ready` would dominate the
+work-queue call.
 
 ---
 
@@ -556,8 +584,11 @@ order of magnitude more work than the store; spend the effort there.
 Deliberately unresolved. Nothing is built yet, so most of these are unanswerable until
 phase 0 has run against real work.
 
-1. **Bodies inline or sidecar?** Inline is simpler; sidecar merges better and is the
-   field that syncs with Jira descriptions. Decide after observing real ticket sizes.
+1. **Bodies inline or sidecar?** *Resolved (2026-08-12) — size-triggered spill.* See
+   §13.2 for the evidence and the design: bodies stay inline; a body exceeding a
+   configurable threshold (default 4096 bytes) spills to `bodies/<id>.md` on write, and
+   `rp show` resolves either form transparently. §5.3 already permits both shapes, so
+   this needs no schema change. Not implemented yet (phase 2).
 2. **Is `tickets.jsonl` ever committed?** Currently no. Committing enables `git grep`
    and cheap CI reads at the cost of churn on every commit.
 3. **Do runners write events directly or always shell out to `rp`?** Direct writes are
@@ -581,11 +612,14 @@ lists and CLI shape are all cheap to change later.
 So: write events generously, keep the envelope strict, and do not over-invest in the
 field set. Build phase 0, run it on something real, and re-read this document.
 
-### 13.2 Bodies: inline or sidecar — preliminary decision (2026-08-12)
+### 13.2 Bodies: inline or sidecar — decision (2026-08-12)
 
 Open question §13 #1. The decision rule was pre-registered before measurement: go
-sidecar if any of D1/D3/D4/D5 fires after measuring over real work; stay inline if
-none do; D2 alone is too weak. Re-evaluate after 100 real tickets.
+sidecar if any of D1/D3/D4/D5 fires; stay inline if none do; D2 alone is too weak.
+Measurement (table below) found none of D3/D4/D5 fire and D1/D2 unmeasurable without
+real tickets — which the rule reads as "stay inline." That reading is overridden here by
+a workload-structure argument the rule did not capture: the body-size distribution is
+bimodal, not single, and that settles the *shape* without a corpus.
 
 Instrumentation: `rp stats --json` derives every signal straight from the log
 (there are no hot-path counters — line length, body size and the over-`PIPE_BUF`
@@ -604,16 +638,27 @@ opt-in under `ROHRPOST_RUN_EXPERIMENTS=1`.
 | D4 fold wall time | > 50 ms | ~109 ms cold fold at 3000×10 events (realistic 200 B body), but **apply-bound** (~85 ms replaying 30 k events); body size adds only ~8 ms across 200 B→2 KB. The >50 ms is a fold-scale property, not a body property. | **NO** (not body-driven) |
 | D5 semantic codec coupling | any | none — E5 round-trips byte-identically across the adversarial corpus (markdown fences, JSON escapes, emoji/CJK/RTL/ZWJ, `\u0000`/U+2028/U+2029, a body that is itself a JSONL event line, 50 KB). | **NO** |
 
-**Decision (preliminary): stay inline.** None of the evaluable signals justifies
-the sidecar machinery, and the two that would — D1/D2, the real body-size
-distribution — are unmeasurable until there are real tickets. This matches the
-build-order principle in §12: do not build phase-2 features before feeling their
-absence. Inline bodies plus the (defensive) lock are correct for now.
+**Decision: size-triggered spill.** Bodies stay inline; a body exceeding a
+configurable threshold (default 4096 bytes) spills to `bodies/<id>.md` on write, and
+`rp show` resolves either form transparently. §5.3 already permits both shapes, so this
+needs no schema change.
 
-**Re-evaluation trigger:** re-run `rp stats` at ≥100 real tickets. Flip to sidecar
-if D1 fires (body p95 > 4000) — large real bodies are the only signal here that
-would actually pay for the sidecar's extra moving parts (a `bodies/` directory, a
-path indirection in the fold, and body lifecycle on create/edit/compact).
+The workload is not one distribution, so a real-ticket sample is not needed to decide
+the *shape* — only to tune the threshold:
+
+- Epic bodies are spec fragments: kilobytes, repeatedly edited, synced against Jira
+  Epic descriptions.
+- Task bodies are a paragraph written once.
+
+A size threshold catches the large epic bodies regardless of sample size; the deferred
+signals (D1/D2) would tune the 4096-byte default, not reverse the design. E5 settles the
+strongest objection to spilling at all: bodies round-trip byte-identically across the
+adversarial corpus, so moving one to a file and back is transparent to the codec.
+
+**Re-evaluation trigger:** the design is firm; the 4096-byte default is what real data
+would tune. Revisit it once `rp stats` runs over ≥100 real tickets and supplies D1/D2.
+
+Not implemented yet (phase 2) — tracked as follow-up tickets.
 
 **Side findings the experiments surfaced:**
 
@@ -622,14 +667,6 @@ path indirection in the fold, and body lifecycle on create/edit/compact).
   short mapping shape now omits the body
   (`ticket_to_mapping(..., include_body=False)`), verified flat by
   `bench_ready_context.py`.
-- **§7 nuance.** The "lines exceeding `PIPE_BUF` go through the lock" framing is
-  conservative: for the regular-file log, `O_APPEND` already makes each append
-  atomic regardless of size, so the lock is belt-and-suspenders (portability,
-  non-local filesystems), not the thing preventing corruption on Linux.
-- **§11 nuance.** A *cold* full fold at the 30 k-event reference is ~100 ms
-  (apply-bound), not single-digit ms. Everyday `rp` invocations hit the
-  `tickets.jsonl` snapshot and avoid this; the cold path matters for `rp stats`
-  and the first invocation after an append.
 
 ---
 
@@ -648,6 +685,12 @@ frontmatter — unquoted colons, `no` parsing as false, indentation drift — an
 file-per-ticket has no chokepoint to catch it. At 95% agent traffic, a single
 validated write path is worth more than reviewable diffs. Also avoids building and
 invalidating an index.
+
+**Waiting for 100 real tickets before deciding inline vs sidecar bodies.** Rejected:
+the epic/task size split is a known workflow property — epics carry spec fragments,
+tasks carry a paragraph — not something a random sample would reveal, and a size
+threshold captures it directly. Inline→sidecar migration also stays cheap if the call
+is wrong: fold, write N files, rewrite the body field as a path. See §13.2.
 
 **Dolt / SQLite backing store (the beads approach).** Best data model of the
 alternatives, but it makes the tool git-adjacent rather than git-native, adds a

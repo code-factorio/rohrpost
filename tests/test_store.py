@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
@@ -102,3 +103,26 @@ def test_event_count_counts_non_blank_lines(tmp_repo: Path) -> None:
     store.append_event(tmp_repo, _ev())
     store.append_event(tmp_repo, _ev("01K2X8P4RQ7YFZ3M9NVB6TDHWX"))
     assert store.event_count(tmp_repo) == 2
+
+
+def test_append_raises_on_short_write_and_rolls_back(
+    tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A short ``write()`` is fatal, not resumed; the partial line is rolled back.
+
+    Resuming a short write would append the remainder in a *second* ``write()`` whose
+    offset can interleave with another writer — collapsing the single-write atomicity
+    spec §7 relies on. The rolled-back tail keeps the log decodable (§3 principle 5).
+    """
+    real_write = os.write
+
+    def short_write(fd: int, data: bytes) -> int:
+        return real_write(fd, data[:1])  # persist one byte, report a short count
+
+    monkeypatch.setattr(os, "write", short_write)
+
+    with pytest.raises(StoreError):
+        store.append_event(tmp_repo, _ev())
+
+    # The single partial byte was rolled back: the log is empty and still decodable.
+    assert store.read_events(tmp_repo) == []

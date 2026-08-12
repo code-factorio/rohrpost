@@ -16,10 +16,10 @@ ordering belong to the fold (:mod:`rohrpost.fold`), not here.
 from __future__ import annotations
 
 import fcntl
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 import msgspec
 
@@ -51,29 +51,47 @@ def file_lock(rohrpost_dir: Path) -> Iterator[None]:
 def append_event(rohrpost_dir: Path, event: Event) -> None:
     """Append one event as a single JSONL line under the advisory lock.
 
-    The whole append (open, write, flush) happens inside :func:`file_lock`, and
-    the log is opened in append mode (``O_APPEND``), so concurrent writers cannot
-    interleave. One ``write()`` of one line keeps sub-``PIPE_BUF`` writes atomic
-    even without the lock; the lock covers the long-body case (spec §7).
+    The whole append happens inside :func:`file_lock` with the log opened
+    ``O_APPEND``. On Linux a single ``O_APPEND`` write to a regular file is atomic
+    at any size (spec §7), so the correctness argument rests on the append being
+    *one* ``write()`` — hence ``os.write`` is used directly, never the buffered
+    file object, which silently loops over short writes and could split the line.
+
+    A short ``write()`` is fatal, not resumed: appending the remainder would be a
+    second ``write()`` whose offset can interleave with another writer, collapsing
+    the single-write atomicity §7 relies on. The partial bytes are rolled back so
+    the log keeps no corrupt half-line, then :class:`StoreError` is raised.
     """
     line = encode(event) + b"\n"
     with file_lock(rohrpost_dir):
         log = paths.log_path(rohrpost_dir)
-        with log.open("ab") as fh:
-            fh.write(line)
-            fh.flush()
-            os_sync(fh)
+        # 0o644 matches the mode ``open("ab")`` would use; without it ``os.open``
+        # defaults to 0o777 and (under a typical umask) creates an executable file.
+        fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        try:
+            written = os.write(fd, line)
+            if written != len(line):
+                # Roll back the partial bytes: a trailing half-line would otherwise
+                # fail to decode on every future read (§3 principle 5).
+                os.ftruncate(fd, os.fstat(fd).st_size - written)
+                raise StoreError(
+                    f"short write to {log}: wrote {written} of {len(line)} bytes; "
+                    "appending the remainder would break single-write atomicity (§7)"
+                )
+            os_sync(fd)
+        finally:
+            os.close(fd)
 
 
-def os_sync(fh: Any) -> None:
-    """Best-effort ``fsync`` of a file object.
+def os_sync(fd: int) -> None:
+    """Best-effort ``fsync`` of an open file descriptor.
 
     Factored out so durability can be dialed (fsync per append is expensive; the
     lock plus append-mode is what guarantees correctness, fsync only durability).
     Currently a no-op: the spec treats git as the backup tier, and committing is
     the caller's job, so per-append fsync is not worth the latency yet.
     """
-    _ = fh  # reserved for os.fsync(fh.fileno()) when we want durability
+    _ = fd  # reserved for os.fsync(fd) when we want durability
 
 
 def _decode_stream(lines: Iterator[str | bytes]) -> tuple[list[Event], list[str]]:
