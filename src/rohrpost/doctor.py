@@ -5,9 +5,9 @@ human report uses it ("stuck in the tube"). Under the hood it is a list of
 independent checks, each returning a finding; a non-empty findings list is a
 non-zero exit. ``--json`` returns the findings as a list.
 
-Phase-0 scope: everything except the remote-credential and shadow checks (those
-belong to the sync layer, spec §8, and are reported as *not applicable* when no
-remotes are configured).
+Remote checks are reported as *not applicable* when no remotes are configured;
+configured remotes must have an available authenticated credential source and
+linked tickets must have a shadow merge base.
 """
 
 from __future__ import annotations

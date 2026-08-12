@@ -519,7 +519,7 @@ tube for >14d"* is more memorable than "3 stale tickets", and nobody has to type
 
 ## 11. Implementation
 
-- **Python ≥ 3.12**, distributed via `uv` — `uvx rohrpost` runs with no prerequisite
+- **Python ≥ 3.14**, distributed via `uv` — `uvx rohrpost` runs with no prerequisite
   toolchain, which matters because agents invoke this from bare containers.
 - **`msgspec`** for JSONL encode/decode with schema validation. Substantially faster
   than pydantic for line-oriented parsing and gives struct types for free.
