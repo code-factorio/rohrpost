@@ -38,6 +38,16 @@ def test_compact_refuses_on_non_main_branch(tmp_repo: Path) -> None:
     assert compact.run(tmp_repo) == 1
 
 
+def test_compact_honors_configured_default_branch(tmp_repo: Path) -> None:
+    repo_root = tmp_repo.parent
+    paths.config_path(tmp_repo).write_text(
+        '[project]\nprefix = "TST"\ndefault_branch = "trunk"\n'
+    )
+    _git(repo_root, "symbolic-ref", "HEAD", "refs/heads/trunk")
+    _commit(repo_root, "initial")
+    assert compact.run(tmp_repo) == 0
+
+
 def test_compact_refuses_on_dirty_tree(tmp_repo: Path) -> None:
     repo_root = tmp_repo.parent
     _on_clean_main(repo_root)

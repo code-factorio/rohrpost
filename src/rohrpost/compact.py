@@ -29,8 +29,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from rohrpost import events, paths, store
+from rohrpost.config import load_config
 from rohrpost.exceptions import StoreError
-from rohrpost.fold import TERMINAL, Ticket, fold_all
+from rohrpost.fold import TERMINAL, Ticket, fold
 
 #: Default retention before terminal-ticket events are archived.
 DEFAULT_ARCHIVE_AFTER_DAYS: int = 90
@@ -65,8 +66,8 @@ def _quarter_bucket(ts: str) -> str:
     return f"log-{dt.year}-Q{quarter}.jsonl"
 
 
-def _default_branch() -> str:
-    return "main"
+def _default_branch(configured: str | None = None) -> str:
+    return configured or "main"
 
 
 def _git_state(repo_root: Path) -> tuple[bool, str]:
@@ -95,7 +96,7 @@ def _git_state(repo_root: Path) -> tuple[bool, str]:
     return dirty, branch
 
 
-def _guard(repo_root: Path, force: bool) -> str | None:
+def _guard(repo_root: Path, force: bool, default_branch: str | None = None) -> str | None:
     """Return a refusal reason if compaction must not proceed, else ``None``."""
     if force:
         return None
@@ -104,9 +105,10 @@ def _guard(repo_root: Path, force: bool) -> str | None:
         return None
     if dirty:
         return "refusing to compact: working tree is dirty (use --force to override)"
-    if branch != _default_branch():
+    expected = _default_branch(default_branch)
+    if branch != expected:
         return (
-            f"refusing to compact: HEAD is on {branch!r}, not {_default_branch()!r} "
+            f"refusing to compact: HEAD is on {branch!r}, not {expected!r} "
             f"(use --force to override)"
         )
     return None
@@ -158,18 +160,20 @@ def run(
     now: datetime | None = None,
 ) -> int:
     """Run compaction. Returns process exit code (0 success, 1 refused/error)."""
-    refusal = _guard(rohrpost_dir.parent, force)
+    config = load_config(rohrpost_dir)
+    refusal = _guard(rohrpost_dir.parent, force, config.default_branch)
     if refusal is not None:
         _fail(refusal, json_output)
         return 1
 
     cutoff = (now or datetime.now(UTC)) - timedelta(days=archive_after_days)
-    events_all = store.read_events(rohrpost_dir)
-    by_id = fold_all(rohrpost_dir)
-    archivable = _archivable_ids(events_all, by_id, cutoff)
-    keep, archive_buckets = _partition(events_all, archivable)
-
     with store.file_lock(rohrpost_dir):
+        # Read and partition while holding the same lock as the rewrite. Otherwise
+        # an append between the read and lock acquisition could be lost.
+        events_all = store.read_events(rohrpost_dir)
+        by_id = fold(events_all)
+        archivable = _archivable_ids(events_all, by_id, cutoff)
+        keep, archive_buckets = _partition(events_all, archivable)
         _rewrite_log(rohrpost_dir, keep)
         for bucket, evs in archive_buckets.items():
             _append_archive(rohrpost_dir, bucket, evs)

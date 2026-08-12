@@ -13,11 +13,15 @@ remotes are configured).
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from rohrpost import paths, store
+from rohrpost import paths, shadow, store
+from rohrpost.config import ConfigError, load_config
 from rohrpost.events import Event
 from rohrpost.fold import _read_snapshot, find_cycle, fold_all
 
@@ -50,6 +54,7 @@ def run(rohrpost_dir: Path, *, json_output: bool = False) -> int:
         _check_gitattributes(rohrpost_dir),
         _check_snapshot_matches(rohrpost_dir, log_ok),
         _check_shadow_files(rohrpost_dir, log_ok),
+        _check_remote_credentials(rohrpost_dir),
     ]
 
     if json_output:
@@ -155,18 +160,77 @@ def _check_shadow_files(rohrpost_dir: Path, log_ok: bool) -> Finding:
     remotes_in_use = {r for t in by_id.values() for r in t.remotes}
     if not remotes_in_use:
         return Finding("shadow_files", True, "no remotes in use (sync not configured)")
-    shadow_root = paths.shadow_dir(rohrpost_dir)
     missing = [
         f"{t.id} -> {name}/{ref}"
         for t in by_id.values()
         for name, ref in t.remotes.items()
-        if not (shadow_root / name / f"{ref}.json").is_file()
+        if not shadow.shadow_path(rohrpost_dir, name, ref).is_file()
     ]
     if missing:
         return Finding(
             "shadow_files", False, f"{len(missing)} missing shadow file(s): {missing[:3]}"
         )
     return Finding("shadow_files", True, "all linked remotes have shadow files")
+
+
+def _check_remote_credentials(rohrpost_dir: Path) -> Finding:
+    """Check that configured remotes have a usable local authentication source."""
+    try:
+        config = load_config(rohrpost_dir)
+    except ConfigError as exc:
+        return Finding("remote_credentials", False, f"cannot load remotes: {exc}")
+    if not config.remotes:
+        return Finding("remote_credentials", True, "no remotes configured")
+
+    missing = [
+        name
+        for name, remote_config in config.remotes.items()
+        if not _remote_authenticated(name, remote_config)
+    ]
+    if missing:
+        return Finding(
+            "remote_credentials",
+            False,
+            f"no authenticated credential source for: {', '.join(sorted(missing))}",
+        )
+    return Finding(
+        "remote_credentials",
+        True,
+        f"authenticated credential source present for {len(config.remotes)} remote(s)",
+    )
+
+
+def _remote_authenticated(name: str, remote_config: dict[str, object]) -> bool:
+    """Return whether a remote has credentials available without exposing them."""
+    remote_type = str(remote_config.get("type", name)).lower()
+    if remote_type == "github":
+        return _github_authenticated()
+
+    token_env = remote_config.get("token_env") or remote_config.get("credential_env")
+    if isinstance(token_env, str) and token_env.strip():
+        return bool(os.environ.get(token_env.strip()))
+    return False
+
+
+def _github_authenticated() -> bool:
+    """Check GitHub token variables or the local ``gh`` authentication state."""
+    if os.environ.get("GITHUB_TOKEN") or os.environ.get("ROHRPOST_GITHUB_TOKEN"):
+        return True
+    if shutil.which("gh") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "status"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except OSError:
+        return False
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
 
 
 def _print_report(findings: list[Finding]) -> None:
