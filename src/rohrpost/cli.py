@@ -23,7 +23,7 @@ from typing import TextIO
 from rohrpost import api, paths
 from rohrpost.config import Config
 from rohrpost.exceptions import RohrpostError
-from rohrpost.fold import derive_status, ticket_to_mapping
+from rohrpost.fold import DEFAULT_PRIORITY, derive_status, ticket_to_mapping
 from rohrpost.providers import Provider
 from rohrpost.util import resolve_actor
 
@@ -328,7 +328,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         priority=(
             args.priority
             if args.priority is not None
-            else int(defaults.get("priority", api.DEFAULT_PRIORITY))
+            else _template_priority(defaults)
         ),
         labels=args.label if args.label is not None else _template_list(defaults, "labels"),
         blocked_by=(
@@ -353,6 +353,14 @@ def cmd_new(args: argparse.Namespace) -> int:
 def _template_list(defaults: dict[str, object], field: str) -> list[str]:
     value = defaults.get(field, [])
     return [str(item) for item in value] if isinstance(value, list) else [str(value)]
+
+
+def _template_priority(defaults: dict[str, object]) -> int:
+    """Return a validated integer priority from template defaults."""
+    value = defaults.get("priority", DEFAULT_PRIORITY)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RohrpostError("template priority must be an integer")
+    return value
 
 
 def _template_optional(defaults: dict[str, object], field: str) -> str | None:

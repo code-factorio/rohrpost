@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,7 @@ def test_doctor_requires_remote_credentials(
     )
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("ROHRPOST_GITHUB_TOKEN", raising=False)
-    monkeypatch.setattr(doctor.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
     assert doctor.run(tmp_repo) == 1
 
 
