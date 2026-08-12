@@ -100,7 +100,7 @@ def test_full_lifecycle_via_cli(cwd_repo: Path, capsys: pytest.CaptureFixture[st
 
 
 def test_new_applies_template_defaults(cwd_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (cwd_repo / "templates" / "bug.toml").write_text(
+    (cwd_repo / ".rohrpost" / "templates" / "bug.toml").write_text(
         '[defaults]\ntype = "bug"\npriority = 1\nlabels = ["auth"]\nbody = "template body"\n'
     )
     cli.main(["new", "A bug", "--template", "bug", "--json"])
