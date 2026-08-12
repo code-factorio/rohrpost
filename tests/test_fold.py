@@ -282,6 +282,14 @@ def test_short_mapping_omits_fieldts_and_comments() -> None:
     assert "comments" not in mapping
 
 
+def test_short_mapping_omits_body_on_request() -> None:
+    # The work-queue shape drops the body so prose never reaches `rp ready`/`rp list`
+    # (decision experiment E7). The default (full / snapshot) shape keeps it.
+    short = ticket_to_mapping(_ticket(body="prose"), include_body=False)
+    assert "body" not in short
+    assert ticket_to_mapping(_ticket(body="prose"))["body"] == "prose"
+
+
 def test_comment_mapping_shape() -> None:
     from rohrpost.fold import Comment
 

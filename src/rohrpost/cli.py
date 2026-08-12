@@ -85,8 +85,14 @@ class _Out:
 
 
 def _short(ticket: api.Ticket, out: _Out) -> dict[str, object]:
+    # The list/ready shape omits fieldts, comments AND the body: the work-queue
+    # view must not carry ticket prose into the agent context (decision E7).
     return ticket_to_mapping(
-        ticket, prefix=out.prefix, include_fieldts=False, include_comments=False
+        ticket,
+        prefix=out.prefix,
+        include_fieldts=False,
+        include_comments=False,
+        include_body=False,
     )
 
 
@@ -238,6 +244,10 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=f"days a terminal ticket must sit before archiving (default: {compact_default_days()})",
     )
+    _add_json(p)
+
+    # stats (spec §13.1): size distributions + fold timing, computed from the log.
+    p = sub.add_parser("stats", help="repository statistics: body/line sizes, fold timing")
     _add_json(p)
 
     # sync (spec §8): three-way merge with a linked remote
@@ -570,6 +580,18 @@ def compact_default_days() -> int:
     return compact.DEFAULT_ARCHIVE_AFTER_DAYS
 
 
+def cmd_stats(args: argparse.Namespace) -> int:
+    from rohrpost import stats as stats_mod
+
+    out = _make_out(args)
+    data = stats_mod.compute_stats(_repo_dir())
+    if out.json:
+        out.emit_json(data)
+        return 0
+    _print_stats(data, out)
+    return 0
+
+
 def _build_provider(remote: str, config: Config) -> Provider:
     """Build the provider for ``remote`` from config. GitHub is built first (§8.5)."""
     from rohrpost.providers.github import GitHubProvider
@@ -763,6 +785,43 @@ def _print_fieldts(ticket: api.Ticket) -> None:
         print(f"    {key}: {ticket.fieldts[key]}")
 
 
+def _print_stats(data: dict[str, object], out: _Out) -> None:
+    """Render ``rp stats`` as a compact, human-readable summary (spec §13.1)."""
+    body = _as_stats_dist(data.get("body_bytes"))
+    line = _as_stats_dist(data.get("event_line_bytes"))
+    over = line.get("over_pipe_buf", 0)
+    lock_share = line.get("lock_share_pct", 0.0)
+    out.print(
+        f"events: {data.get('events')}  tickets: {data.get('tickets')}  "
+        f"PIPE_BUF: {data.get('pipe_buf')}"
+    )
+    out.print(
+        "body bytes:       "
+        f"p50 {body['p50']}  p90 {body['p90']}  p95 {body['p95']}  "
+        f"p99 {body['p99']}  max {body['max']}  (n={body['count']})"
+    )
+    out.print(
+        "event line bytes: "
+        f"p50 {line['p50']}  p95 {line['p95']}  max {line['max']}  "
+        f"over PIPE_BUF: {over} ({lock_share}% of set events)"
+    )
+    out.print(f"cold fold: {data.get('fold_ms')} ms (median)")
+
+
+def _as_stats_dist(value: object) -> dict[str, object]:
+    """Narrow a stats distribution mapping, defaulting the standard keys to 0.
+
+    Non-standard keys (``over_pipe_buf``, ``lock_share_pct`` on the line
+    distribution) are carried through unchanged.
+    """
+    raw = value if isinstance(value, dict) else {}
+    base = {key: raw.get(key, 0) for key in ("p50", "p90", "p95", "p99", "max", "count")}
+    for key, val in raw.items():
+        if key not in base:
+            base[key] = val
+    return base
+
+
 # ---------------------------------------------------------------------------
 # Dispatch.
 # ---------------------------------------------------------------------------
@@ -784,6 +843,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "log": cmd_log,
     "doctor": cmd_doctor,
     "compact": cmd_compact,
+    "stats": cmd_stats,
     "sync": cmd_sync,
     "conflicts": cmd_conflicts,
     "resolve": cmd_resolve,

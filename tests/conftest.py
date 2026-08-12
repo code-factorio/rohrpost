@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import itertools
+import os
 import subprocess
 from pathlib import Path
 
@@ -51,3 +52,17 @@ def deterministic_ulid() -> UlidFactory:
 
     counter = itertools.count(0)
     return lambda: new_ulid(timestamp_ms=1_767_225_600_000 + next(counter))
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip ``@pytest.mark.experiment`` tests unless ``ROHRPOST_RUN_EXPERIMENTS`` is set.
+
+    Concurrency races and timings are informative experiments but not deterministic
+    regressions, so they never run in the default gate — only on explicit request.
+    """
+    if os.environ.get("ROHRPOST_RUN_EXPERIMENTS"):
+        return
+    skip = pytest.mark.skip(reason="set ROHRPOST_RUN_EXPERIMENTS=1 to run experiments")
+    for item in items:
+        if "experiment" in item.keywords:
+            item.add_marker(skip)

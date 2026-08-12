@@ -128,6 +128,25 @@ def test_ready_lists_unblocked_work(cwd_repo: Path, capsys: pytest.CaptureFixtur
     assert ready_ids == [blocked]
 
 
+def test_ready_and_list_json_omit_body(cwd_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The work-queue shapes must not carry ticket prose into context (decision E7)."""
+    body = "x" * 5000
+    cli.main(["new", "with body", "--body", body, "--json"])
+    capsys.readouterr()  # drain the created ticket
+
+    for cmd in (["ready", "--json"], ["list", "--json"]):
+        cli.main(cmd)
+        rows = json.loads(capsys.readouterr().out)
+        assert rows, f"{cmd} returned no rows"
+        assert "body" not in rows[0]
+
+    # The full shape (`rp show --json`) still carries the body.
+    cli.main(["list", "--json"])
+    rendered_id = json.loads(capsys.readouterr().out)[0]["id"]
+    cli.main(["show", rendered_id, "--json"])
+    assert json.loads(capsys.readouterr().out)["body"] == body
+
+
 def test_set_idempotent_reports_no_change(
     cwd_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

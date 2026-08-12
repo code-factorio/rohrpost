@@ -106,6 +106,9 @@ minversion = "8.4"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config --showlocals"
 filterwarnings = ["error"]
+markers = [
+    "experiment: opt-in race/perf experiment; skipped unless ROHRPOST_RUN_EXPERIMENTS=1",
+]
 
 # ---------------------------------------------------------------------------
 # coverage

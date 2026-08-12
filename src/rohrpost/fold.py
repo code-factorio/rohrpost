@@ -387,6 +387,7 @@ def ticket_to_mapping(
     prefix: str | None = None,
     include_fieldts: bool = True,
     include_comments: bool = True,
+    include_body: bool = True,
 ) -> dict[str, object]:
     """Convert a ticket to a plain mapping.
 
@@ -394,8 +395,10 @@ def ticket_to_mapping(
     display prefix (the form humans and the spec's examples use); ``fieldts`` is
     emitted under the spec's ``_fieldts`` key. ``include_comments`` carries the
     notes list (needed by the snapshot cache and ``rp show``; dropped for the
-    short ``rp list`` shape). Drop ``include_fieldts``/``include_comments`` for
-    compact collection output.
+    short ``rp list`` shape). ``include_body`` is dropped for the short shape too
+    — the work-queue view (``rp ready``/``rp list``) must not carry ticket prose
+    into the agent context (decision experiment E7). Drop
+    ``include_fieldts``/``include_comments`` for compact collection output.
     """
 
     def rnd(tid: str | None) -> str | None:
@@ -419,6 +422,10 @@ def ticket_to_mapping(
         "created": ticket.created,
         "updated": ticket.updated,
     }
+    if not include_body:
+        # The short list/ready shape drops the body: it is prose that does not
+        # belong in the work-queue view (decision experiment E7).
+        del mapping["body"]
     if include_comments:
         mapping["comments"] = [comment_to_mapping(c) for c in ticket.comments]
     if include_fieldts:
