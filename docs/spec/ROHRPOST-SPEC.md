@@ -581,6 +581,56 @@ lists and CLI shape are all cheap to change later.
 So: write events generously, keep the envelope strict, and do not over-invest in the
 field set. Build phase 0, run it on something real, and re-read this document.
 
+### 13.2 Bodies: inline or sidecar — preliminary decision (2026-08-12)
+
+Open question §13 #1. The decision rule was pre-registered before measurement: go
+sidecar if any of D1/D3/D4/D5 fires after measuring over real work; stay inline if
+none do; D2 alone is too weak. Re-evaluate after 100 real tickets.
+
+Instrumentation: `rp stats --json` derives every signal straight from the log
+(there are no hot-path counters — line length, body size and the over-`PIPE_BUF`
+count are all computable by decoding events, so instrumentation is free at append
+time and retroactive). Only `fold_ms` is a live timing. The experiments live in
+`tests/` (`test_append_integrity`, `test_union_merge_long_lines`,
+`test_body_roundtrip`, `test_merge_body_fidelity`, `test_fold_invariants`) and
+`scripts/` (`bench_fold_cost`, `bench_ready_context`); the concurrency races are
+opt-in under `ROHRPOST_RUN_EXPERIMENTS=1`.
+
+| Signal | Threshold | Observed (2026-08-12) | Fires? |
+|---|---|---|---|
+| D1 body p95 bytes | > 4000 | not measurable yet — no real tickets; `rp stats` will supply it | **DEFERRED** |
+| D2 body p50 bytes | > 1000 | not measurable yet | DEFERRED (weak alone) |
+| D3 lock-path share | > 5% | premise void on Linux: E2 shows **no corruption without the lock even at 64 KB** — `O_APPEND` makes each single-`write()` append atomic on regular files, and `PIPE_BUF` governs pipes/FIFOs, not the log file. The lock is defensive, not integrity-load-bearing here. | **NO** (hazard theoretical) |
+| D4 fold wall time | > 50 ms | ~109 ms cold fold at 3000×10 events (realistic 200 B body), but **apply-bound** (~85 ms replaying 30 k events); body size adds only ~8 ms across 200 B→2 KB. The >50 ms is a fold-scale property, not a body property. | **NO** (not body-driven) |
+| D5 semantic codec coupling | any | none — E5 round-trips byte-identically across the adversarial corpus (markdown fences, JSON escapes, emoji/CJK/RTL/ZWJ, `\u0000`/U+2028/U+2029, a body that is itself a JSONL event line, 50 KB). | **NO** |
+
+**Decision (preliminary): stay inline.** None of the evaluable signals justifies
+the sidecar machinery, and the two that would — D1/D2, the real body-size
+distribution — are unmeasurable until there are real tickets. This matches the
+build-order principle in §12: do not build phase-2 features before feeling their
+absence. Inline bodies plus the (defensive) lock are correct for now.
+
+**Re-evaluation trigger:** re-run `rp stats` at ≥100 real tickets. Flip to sidecar
+if D1 fires (body p95 > 4000) — large real bodies are the only signal here that
+would actually pay for the sidecar's extra moving parts (a `bodies/` directory, a
+path indirection in the fold, and body lifecycle on create/edit/compact).
+
+**Side findings the experiments surfaced:**
+
+- **E7 bug, fixed.** `rp ready --json` / `rp list --json` used to include every
+  ticket's full body, so the work-queue view charged the agent for prose. The
+  short mapping shape now omits the body
+  (`ticket_to_mapping(..., include_body=False)`), verified flat by
+  `bench_ready_context.py`.
+- **§7 nuance.** The "lines exceeding `PIPE_BUF` go through the lock" framing is
+  conservative: for the regular-file log, `O_APPEND` already makes each append
+  atomic regardless of size, so the lock is belt-and-suspenders (portability,
+  non-local filesystems), not the thing preventing corruption on Linux.
+- **§11 nuance.** A *cold* full fold at the 30 k-event reference is ~100 ms
+  (apply-bound), not single-digit ms. Everyday `rp` invocations hit the
+  `tickets.jsonl` snapshot and avoid this; the cold path matters for `rp stats`
+  and the first invocation after an append.
+
 ---
 
 ## Appendix A — Rejected alternatives
