@@ -278,7 +278,9 @@ This also keeps proposed work out of accepted work: a rejected decomposition lea
 discarded document rather than orphaned tickets to clean up.
 
 **A template is a file**, `templates/<name>.toml`: default field values plus a body
-skeleton. Hand-authored, committed, never in the log. `rp new --template bug`.
+skeleton. Hand-authored, committed, never in the log. Defaults may be at the top
+level or under `[defaults]`, `[fields]`, or `[ticket]`; command-line values win.
+`rp new "title" --template bug`.
 
 **A batch is a label on claim events**, not a stored object: `actor:
 "runner/claude-code@b-3"`. Batches are ephemeral dispatch units and do not need to

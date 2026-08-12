@@ -17,6 +17,7 @@ objects; the display prefix is applied only at the output layer (CLI). The
 
 from __future__ import annotations
 
+import tomllib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,6 +78,7 @@ class Assignment:
 _SCALAR_FIELD_NAMES: frozenset[str] = frozenset(
     {"title", "type", "status", "priority", "assignee", "parent", "body"}
 )
+_TEMPLATE_FIELDS: frozenset[str] = _SCALAR_FIELD_NAMES | SET_FIELDS
 
 
 def parse_assignment(token: str) -> Assignment:
@@ -131,6 +133,80 @@ def _normalise_structural(value: str) -> str:
         return normalize_id(value)
     except StoreError as exc:
         raise TicketError(str(exc)) from exc
+
+
+def load_template(rohrpost_dir: Path, name: str) -> dict[str, object]:
+    """Load ticket defaults from ``templates/<name>.toml``.
+
+    Defaults may live at the top level or under ``[defaults]``, ``[fields]`` or
+    ``[ticket]``. Command-line values are applied by the CLI after loading.
+    """
+    requested = name.strip()
+    if not requested:
+        raise TicketError("template name must be non-empty")
+    filename = requested if requested.endswith(".toml") else f"{requested}.toml"
+    if Path(filename).name != filename:
+        raise TicketError("template name must be a simple filename")
+
+    root = paths.templates_dir(rohrpost_dir).resolve()
+    path = (root / filename).resolve()
+    if not path.is_relative_to(root):
+        raise TicketError("template path must stay under .rohrpost/templates")
+    if not path.is_file():
+        raise TicketError(f"no such template: {name}")
+
+    try:
+        with path.open("rb") as fh:
+            raw = tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        raise TicketError(f"invalid template {name!r}: {exc}") from exc
+    except OSError as exc:
+        raise TicketError(f"cannot read template {name!r}: {exc}") from exc
+
+    values = {key: value for key, value in raw.items() if key in _TEMPLATE_FIELDS}
+    for section_name in ("defaults", "fields", "ticket"):
+        section = raw.get(section_name)
+        if section is None:
+            continue
+        if not isinstance(section, dict):
+            raise TicketError(f"template section [{section_name}] must be a table")
+        values.update(section)
+
+    unknown = sorted(set(values) - _TEMPLATE_FIELDS)
+    if unknown:
+        raise TicketError(f"unknown template field(s): {', '.join(unknown)}")
+    return _normalise_template_values(values)
+
+
+def _normalise_template_values(values: dict[str, object]) -> dict[str, object]:
+    """Validate and normalise values read from a template file."""
+    result = dict(values)
+    if "priority" in result and (
+        isinstance(result["priority"], bool) or not isinstance(result["priority"], int)
+    ):
+        raise TicketError("template priority must be an integer")
+    for field in ("labels", "blocked_by"):
+        if field not in result:
+            continue
+        value = result[field]
+        items = value if isinstance(value, list) else [value]
+        if not all(isinstance(item, str) and item.strip() for item in items):
+            raise TicketError(f"template {field} must contain non-empty strings")
+        cleaned = [item.strip() for item in items]
+        result[field] = (
+            [_normalise_structural(item) for item in cleaned]
+            if field == "blocked_by"
+            else cleaned
+        )
+    for field in ("title", "type", "status", "assignee", "body"):
+        if field in result and not isinstance(result[field], str):
+            raise TicketError(f"template {field} must be a string")
+    if "parent" in result:
+        parent = result["parent"]
+        if not isinstance(parent, str):
+            raise TicketError("template parent must be a ticket id")
+        result["parent"] = _normalise_structural(parent)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -781,6 +857,7 @@ __all__ = [
     "event_log",
     "init_repo",
     "link_remote",
+    "load_template",
     "list_tickets",
     "load_repo_config",
     "load_tickets_map",

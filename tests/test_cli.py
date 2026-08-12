@@ -99,6 +99,18 @@ def test_full_lifecycle_via_cli(cwd_repo: Path, capsys: pytest.CaptureFixture[st
     assert json.loads(capsys.readouterr().out)["last_close_reason"] == "done"
 
 
+def test_new_applies_template_defaults(cwd_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (cwd_repo / "templates" / "bug.toml").write_text(
+        '[defaults]\ntype = "bug"\npriority = 1\nlabels = ["auth"]\nbody = "template body"\n'
+    )
+    cli.main(["new", "A bug", "--template", "bug", "--json"])
+    ticket = json.loads(capsys.readouterr().out)
+    assert ticket["type"] == "bug"
+    assert ticket["priority"] == 1
+    assert ticket["labels"] == ["auth"]
+    assert ticket["body"] == "template body"
+
+
 def test_ready_lists_unblocked_work(cwd_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     cli.main(["new", "blocker", "--json"])
     dep = json.loads(capsys.readouterr().out)["id"].split("-")[1]
