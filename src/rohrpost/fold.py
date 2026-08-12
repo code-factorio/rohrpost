@@ -232,6 +232,8 @@ def fold(events: list[Event]) -> dict[str, Ticket]:
     """
     builders: dict[str, _Builder] = {}
     for ev in _dedup_sort(events):
+        if ev.op == "synced":
+            continue
         tid = _bare_id(ev.ticket)
         builder = builders.get(tid)
         if builder is None:

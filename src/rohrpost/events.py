@@ -19,6 +19,11 @@ import msgspec
 #: The closed set of operations an event can record. See spec §5.2.
 type Op = Literal["create", "set", "comment", "link", "unlink", "synced"]
 
+# ``synced`` is a remote-level watermark rather than a ticket mutation. The
+# envelope still requires a ticket string, so this reserved value keeps the
+# event schema strict while fold ignores the watermark.
+SYNC_TICKET: str = "__sync__"
+
 
 class Event(msgspec.Struct, kw_only=True, omit_defaults=True, frozen=True):
     """One line in ``log.jsonl`` — an immutable, append-only mutation record.

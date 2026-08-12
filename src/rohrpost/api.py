@@ -802,7 +802,11 @@ def event_log(rohrpost_dir: Path, ticket_ref: str | None = None) -> list[Event]:
     events = store.read_events(rohrpost_dir)
     if ticket_ref is not None:
         tid = _normalise_structural(ticket_ref)
-        events = [e for e in events if _normalise_structural(e.ticket) == tid]
+        events = [
+            e
+            for e in events
+            if e.op != "synced" and _normalise_structural(e.ticket) == tid
+        ]
     events.sort(key=lambda e: (e.ts, e.id))
     return events
 
