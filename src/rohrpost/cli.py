@@ -125,12 +125,11 @@ def _build_parser() -> argparse.ArgumentParser:
     # new
     p = sub.add_parser("new", help="create a ticket")
     p.add_argument("title", help="ticket title")
-    p.add_argument("--type", default="task", help="task | bug | spike | epic (default: task)")
-    p.add_argument(
-        "-p", "--priority", type=int, default=2, help="0 highest .. 4 lowest (default: 2)"
-    )
-    p.add_argument("--label", action="append", default=[], help="label (repeatable)")
-    p.add_argument("--blocked-by", action="append", default=[], help="ticket id (repeatable)")
+    p.add_argument("--template", default=None, help="load defaults from templates/<name>.toml")
+    p.add_argument("--type", default=None, help="task | bug | spike | epic (default: task)")
+    p.add_argument("-p", "--priority", type=int, default=None, help="0 highest .. 4 lowest")
+    p.add_argument("--label", action="append", default=None, help="label (repeatable)")
+    p.add_argument("--blocked-by", action="append", default=None, help="ticket id (repeatable)")
     p.add_argument("--parent", default=None, help="parent epic id")
     p.add_argument("--assignee", default=None, help="assignee actor string")
     p.add_argument("--body", default=None, help="ticket body / description")
@@ -320,16 +319,28 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_new(args: argparse.Namespace) -> int:
     out = _make_out(args)
+    repo = _repo_dir()
+    defaults = api.load_template(repo, args.template) if args.template else {}
     result = api.create_ticket(
-        _repo_dir(),
+        repo,
         args.title,
-        type=args.type,
-        priority=args.priority,
-        labels=args.label,
-        blocked_by=args.blocked_by,
-        parent=args.parent,
-        assignee=args.assignee,
-        body=args.body,
+        type=args.type if args.type is not None else str(defaults.get("type", "task")),
+        priority=(
+            args.priority
+            if args.priority is not None
+            else int(defaults.get("priority", api.DEFAULT_PRIORITY))
+        ),
+        labels=args.label if args.label is not None else _template_list(defaults, "labels"),
+        blocked_by=(
+            args.blocked_by
+            if args.blocked_by is not None
+            else _template_list(defaults, "blocked_by")
+        ),
+        parent=args.parent if args.parent is not None else _template_optional(defaults, "parent"),
+        assignee=(
+            args.assignee if args.assignee is not None else _template_optional(defaults, "assignee")
+        ),
+        body=args.body if args.body is not None else _template_optional(defaults, "body"),
         actor=_actor_of(args),
     )
     if out.json:
@@ -337,6 +348,16 @@ def cmd_new(args: argparse.Namespace) -> int:
     else:
         _print_created(result.ticket, out)
     return 0
+
+
+def _template_list(defaults: dict[str, object], field: str) -> list[str]:
+    value = defaults.get(field, [])
+    return [str(item) for item in value] if isinstance(value, list) else [str(value)]
+
+
+def _template_optional(defaults: dict[str, object], field: str) -> str | None:
+    value = defaults.get(field)
+    return str(value) if value is not None else None
 
 
 def cmd_ready(args: argparse.Namespace) -> int:

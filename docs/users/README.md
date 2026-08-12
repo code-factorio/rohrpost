@@ -71,10 +71,14 @@ dependents with no extra writes.
 rp new "Fix token refresh race"
 rp new "Spike: auth options" --type spike -p 1
 rp new "Child task" --parent <epic-id> --label auth --blocked-by <id> --body "..."
+rp new "Handle auth failures" --template bug
 ```
 
 Flags: `--type task|bug|spike|epic`, `-p/--priority 0..4` (0 highest), `--label`
 (repeatable), `--blocked-by` (repeatable), `--parent`, `--assignee`, `--body`.
+`--template NAME` loads defaults from `.rohrpost/templates/NAME.toml`; command-line
+values override template defaults. A template may use top-level fields or a
+`[defaults]`, `[fields]`, or `[ticket]` table.
 
 ### Find work
 

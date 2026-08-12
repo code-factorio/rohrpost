@@ -200,6 +200,30 @@ def test_link_binds_remote(tmp_repo: Path) -> None:
     assert t.remotes == {"github": "42"}
 
 
+def test_link_and_unlink_are_idempotent(tmp_repo: Path) -> None:
+    tid = _new(tmp_repo)
+    assert api.link_remote(tmp_repo, tid, "github", "42", actor="user/x").wrote
+    assert not api.link_remote(tmp_repo, tid, "github", "42", actor="user/x").wrote
+    assert api.unlink_remote(tmp_repo, tid, "github", actor="user/x").wrote
+    assert not api.unlink_remote(tmp_repo, tid, "github", actor="user/x").wrote
+    assert api.show_ticket(tmp_repo, tid).remotes == {}
+
+
+def test_load_template_reads_defaults_and_normalises_ids(tmp_repo: Path) -> None:
+    template = tmp_repo / "templates" / "bug.toml"
+    template.write_text(
+        '[defaults]\ntype = "bug"\npriority = 1\nlabels = ["bug", "auth"]\n'
+        'blocked_by = ["TST-9f8e7d"]\nbody = "Investigate"\n'
+    )
+    assert api.load_template(tmp_repo, "bug") == {
+        "type": "bug",
+        "priority": 1,
+        "labels": ["bug", "auth"],
+        "blocked_by": ["9f8e7d"],
+        "body": "Investigate",
+    }
+
+
 def test_event_log_filtered_to_ticket(tmp_repo: Path) -> None:
     a = _new(tmp_repo, "a")
     _new(tmp_repo, "b")
