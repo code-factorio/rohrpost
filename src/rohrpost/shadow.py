@@ -21,11 +21,16 @@ from rohrpost import paths
 
 def _safe_ref(ref: str) -> str:
     """Make a remote ref safe to use as a filename (refs can be issue numbers or keys)."""
-    return ref.replace("/", "_")
+    return ref.replace("/", "_").replace("\\", "_")
+
+
+def _safe_remote(remote: str) -> str:
+    """Keep a configured remote name within the shadow directory."""
+    return remote.replace("/", "_").replace("\\", "_")
 
 
 def shadow_path(rohrpost_dir: Path, remote: str, ref: str) -> Path:
-    return paths.shadow_dir(rohrpost_dir) / remote / f"{_safe_ref(ref)}.json"
+    return paths.shadow_dir(rohrpost_dir) / _safe_remote(remote) / f"{_safe_ref(ref)}.json"
 
 
 def read_shadow(rohrpost_dir: Path, remote: str, ref: str) -> dict[str, object] | None:

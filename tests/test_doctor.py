@@ -19,6 +19,26 @@ def test_doctor_passes_on_healthy_repo(tmp_repo: Path) -> None:
     assert doctor.run(tmp_repo) == 0
 
 
+def test_doctor_requires_remote_credentials(
+    tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths.config_path(tmp_repo).write_text(
+        '[project]\nprefix = "TST"\n\n[remotes.github]\nrepo = "owner/name"\n'
+    )
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("ROHRPOST_GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: None)
+    assert doctor.run(tmp_repo) == 1
+
+
+def test_doctor_accepts_github_token(tmp_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    paths.config_path(tmp_repo).write_text(
+        '[project]\nprefix = "TST"\n\n[remotes.github]\nrepo = "owner/name"\n'
+    )
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    assert doctor.run(tmp_repo) == 0
+
+
 def test_doctor_detects_malformed_log(tmp_repo: Path) -> None:
     paths.log_path(tmp_repo).write_text("garbage\n")
     assert doctor.run(tmp_repo) == 1
