@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import httpx
 import pytest
 
 from rohrpost import api, doctor, paths
@@ -37,7 +38,46 @@ def test_doctor_accepts_github_token(tmp_repo: Path, monkeypatch: pytest.MonkeyP
         '[project]\nprefix = "TST"\n\n[remotes.github]\nrepo = "owner/name"\n'
     )
     monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setattr(
+        httpx,
+        "get",
+        lambda *args, **kwargs: httpx.Response(200),
+    )
     assert doctor.run(tmp_repo) == 0
+
+
+def test_doctor_rejects_invalid_github_token(
+    tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths.config_path(tmp_repo).write_text(
+        '[project]\nprefix = "TST"\n\n[remotes.github]\nrepo = "owner/name"\n'
+    )
+    monkeypatch.setenv("GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(
+        httpx,
+        "get",
+        lambda *args, **kwargs: httpx.Response(401),
+    )
+    assert doctor.run(tmp_repo) == 1
+
+
+def test_doctor_checks_token_against_configured_github_url(
+    tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths.config_path(tmp_repo).write_text(
+        '[project]\nprefix = "TST"\n\n[remotes.github]\n'
+        'url = "https://github.example/api/v3/"\nrepo = "owner/name"\n'
+    )
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    requested_urls: list[str] = []
+
+    def authenticated_get(url: str, **kwargs: object) -> httpx.Response:
+        requested_urls.append(url)
+        return httpx.Response(200)
+
+    monkeypatch.setattr(httpx, "get", authenticated_get)
+    assert doctor.run(tmp_repo) == 0
+    assert requested_urls == ["https://github.example/api/v3/user"]
 
 
 def test_doctor_detects_malformed_log(tmp_repo: Path) -> None:

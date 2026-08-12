@@ -224,6 +224,14 @@ def test_load_template_reads_defaults_and_normalises_ids(tmp_repo: Path) -> None
     }
 
 
+def test_load_template_rejects_unknown_top_level_field(tmp_repo: Path) -> None:
+    template = tmp_repo / "templates" / "typo.toml"
+    template.write_text("priorit = 1\n")
+
+    with pytest.raises(TicketError, match=r"unknown template field\(s\): priorit"):
+        api.load_template(tmp_repo, "typo")
+
+
 def test_event_log_filtered_to_ticket(tmp_repo: Path) -> None:
     a = _new(tmp_repo, "a")
     _new(tmp_repo, "b")
