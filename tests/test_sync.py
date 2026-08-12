@@ -93,7 +93,7 @@ def test_sync_dry_run_touches_nothing(tmp_repo: Path) -> None:
 
 
 def test_sync_rewrites_shadow(tmp_repo: Path) -> None:
-    _linked(tmp_repo, ref="42", title="unchanged")
+    tid = _linked(tmp_repo, ref="42", title="unchanged")
     shadow.write_shadow(tmp_repo, "github", "42", {"title": "unchanged"})
     provider = FakeProvider({"42": {"title": "remote-edit"}})
 
@@ -101,6 +101,8 @@ def test_sync_rewrites_shadow(tmp_repo: Path) -> None:
     snap = shadow.read_shadow(tmp_repo, "github", "42")
     assert snap is not None
     assert snap["title"] == "remote-edit"
+    assert [event.op for event in api.event_log(tmp_repo)].count("synced") == 1
+    assert all(event.op != "synced" for event in api.event_log(tmp_repo, tid))
 
 
 # ---------------------------------------------------------------------------

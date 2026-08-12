@@ -22,6 +22,7 @@ from pathlib import Path
 
 from rohrpost import shadow, store
 from rohrpost.config import Config
+from rohrpost.events import SYNC_TICKET
 from rohrpost.fold import load_tickets
 from rohrpost.merge import FieldConflict, MergeResult, Policy, three_way
 from rohrpost.providers import Provider
@@ -121,6 +122,8 @@ def sync_round(
                 tid, ticket.remotes[remote], pulled, pushed, [c.field for c in merged.conflicts]
             )
         )
+    if not dry_run:
+        _append_synced(rohrpost_dir, remote, who, now, mk_ulid, Event)
     return report
 
 
@@ -184,7 +187,6 @@ def _apply_merge(
         live = provider.push(ref, dict(local_won))
         pushed = len(local_won)
     shadow.write_shadow(ctx.repo, ctx.remote, ref, _next_shadow(base, live, remote_won))
-    _append_synced(ctx.repo, tid, ctx.remote, ctx.who, ctx.now, ctx.ulid, ctx.event_cls)
     return pulled, pushed
 
 
@@ -267,7 +269,6 @@ def _flag_conflict(
 
 def _append_synced(
     rohrpost_dir: Path,
-    tid: str,
     remote: str,
     who: str,
     now: Clock,
@@ -275,16 +276,17 @@ def _append_synced(
     event_cls: type,
 ) -> None:
     """Record that a ticket completed a sync round with ``remote`` (§8.4 step 6)."""
+    timestamp = now()
     store.append_event(
         rohrpost_dir,
         event_cls(
             id=ulid(),
-            ts=now(),
-            ticket=tid,
+            ts=timestamp,
+            ticket=SYNC_TICKET,
             op="synced",
             actor=who,
             remote=remote,
-            at=now(),
+            at=timestamp,
         ),
     )
 
