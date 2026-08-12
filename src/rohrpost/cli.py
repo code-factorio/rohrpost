@@ -348,7 +348,9 @@ def cmd_new(args: argparse.Namespace) -> int:
 
 def _template_list(defaults: dict[str, object], field: str) -> list[str]:
     value = defaults.get(field, [])
-    return [str(item) for item in value] if isinstance(value, list) else [str(value)]
+    if not isinstance(value, list):
+        raise RohrpostError(f"template {field} must be a list")
+    return [str(item) for item in value]
 
 
 def _template_priority(defaults: dict[str, object]) -> int:
