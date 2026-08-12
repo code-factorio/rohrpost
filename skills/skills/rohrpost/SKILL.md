@@ -118,7 +118,8 @@ rp resolve <id> --take local  # clear a conflict (edit the field first)
 ```
 
 When both sides edit the same field, the ticket moves to `review` and is tagged
-`conflict:<remote>`; bodies get a real text merge. Sync is idempotent.
+`conflict:<remote>`; bodies get a real text merge, while independent `labels`
+additions/removals compose as a set. Sync is idempotent.
 
 ## What `rp` does NOT do
 

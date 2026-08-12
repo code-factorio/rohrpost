@@ -25,3 +25,7 @@ class TicketError(RohrpostError):
 
 class TicketNotFoundError(TicketError):
     """Raised when a referenced ticket id does not exist in the folded log."""
+
+
+class RemoteItemNotFoundError(RohrpostError):
+    """Raised when a linked item has been deleted from its remote tracker."""

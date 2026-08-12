@@ -129,8 +129,13 @@ for bodies), `shadow.py` (the merge base), `sync.py` (the round), and
 `providers/github.py` (gh-preferred, httpx fallback) implement spec §8.
 `config.py` passes `[remotes.*]` tables through. To add Jira/Linear/GitLab,
 implement the `Provider` protocol (`fetch`/`push` returning local-vocab field
-maps) and register it in `cli._build_provider`. First-cut sync is scalar fields
-only; a set-wise three-way merge for `labels` is the follow-on.
+maps) and register it in `cli._build_provider`. `labels` use set-wise three-way
+merge; bodies use `git merge-file`; other mapped fields use scalar resolution.
+
+The executable merge specification lives in `tests/sync/scenarios.py`. The
+strict `FakeRemote` keeps remote-shaped items, records every provider call, and
+supports failure injection. Every scenario also runs idempotence, convergence,
+provenance, and dry-run checks; regressions should be added as table rows.
 
 ---
 
