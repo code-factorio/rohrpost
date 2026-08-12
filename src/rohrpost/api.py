@@ -545,14 +545,47 @@ def link_remote(
         raise TicketError("remote and ref must be non-empty")
     by_id = load_tickets(rohrpost_dir)
     ticket = _resolve(by_id, ticket_ref)
+    remote = remote.strip()
+    ref = ref.strip()
+    if ticket.remotes.get(remote) == ref:
+        return WriteResult(ticket, wrote=False)
     event = _build_event(
         ticket=ticket.id,
         op="link",
         actor=actor,
         now=now,
         ulid=ulid,
-        remote=remote.strip(),
-        ref=ref.strip(),
+        remote=remote,
+        ref=ref,
+    )
+    _append(rohrpost_dir, event)
+    return WriteResult(_require_after(rohrpost_dir, ticket.id), wrote=True)
+
+
+def unlink_remote(
+    rohrpost_dir: Path,
+    ticket_ref: str,
+    remote: str,
+    *,
+    actor: str,
+    now: Clock = now_ts,
+    ulid: UlidFactory = new_ulid,
+) -> WriteResult:
+    """Remove a ticket's binding to a remote tracker (``unlink`` event)."""
+    remote = remote.strip()
+    if not remote:
+        raise TicketError("remote must be non-empty")
+    by_id = load_tickets(rohrpost_dir)
+    ticket = _resolve(by_id, ticket_ref)
+    if remote not in ticket.remotes:
+        return WriteResult(ticket, wrote=False)
+    event = _build_event(
+        ticket=ticket.id,
+        op="unlink",
+        actor=actor,
+        now=now,
+        ulid=ulid,
+        remote=remote,
     )
     _append(rohrpost_dir, event)
     return WriteResult(_require_after(rohrpost_dir, ticket.id), wrote=True)
@@ -759,4 +792,5 @@ __all__ = [
     "snapshot_comment",
     "snapshot_mapping",
     "tree",
+    "unlink_remote",
 ]

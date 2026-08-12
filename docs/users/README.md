@@ -94,6 +94,7 @@ rp claim <id>             # -> in_progress, stamps the actor as assignee
 rp set <id> status=review priority=1
 rp set <id> labels+=auth,bug labels-=ui
 rp comment <id> "retried with backoff, still 429s"
+rp unlink <id> github
 rp close <id> --reason "implemented with exponential backoff"
 rp drop <id> --reason "wontfix"
 ```
@@ -202,6 +203,7 @@ status = { open = "open", in_progress = "open", done = "closed", dropped = "clos
 
 ```bash
 rp link <id> github 42       # bind a ticket to GitHub issue #42
+rp unlink <id> github         # remove the binding
 rp sync --dry-run            # print the plan, touch nothing
 rp sync                      # three-way merge: pull remote edits, push local edits
 rp conflicts                 # tickets flagged when both sides changed a field

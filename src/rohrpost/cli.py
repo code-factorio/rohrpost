@@ -32,7 +32,7 @@ _UNIMPLEMENTED: tuple[str, ...] = ()
 
 #: Subcommands that mutate the log and accept ``--actor``.
 _ACTOR_COMMANDS: frozenset[str] = frozenset(
-    {"new", "set", "claim", "close", "drop", "comment", "link"}
+    {"new", "set", "claim", "close", "drop", "comment", "link", "unlink"}
 )
 
 
@@ -211,6 +211,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", help="ticket id")
     p.add_argument("remote", help="remote name (e.g. github)")
     p.add_argument("ref", help="remote item reference (e.g. issue number)")
+    _add_actor(p)
+    _add_json(p)
+
+    # unlink
+    p = sub.add_parser("unlink", help="remove a ticket's remote binding")
+    p.add_argument("id", help="ticket id")
+    p.add_argument("remote", help="remote name (e.g. github)")
     _add_actor(p)
     _add_json(p)
 
@@ -464,6 +471,17 @@ def cmd_link(args: argparse.Namespace) -> int:
         out.emit_json(_full(result.ticket, out))
     else:
         print(f"Linked {_rend(result.ticket.id, out)} -> {args.remote}/{args.ref}")
+    return 0
+
+
+def cmd_unlink(args: argparse.Namespace) -> int:
+    out = _make_out(args)
+    result = api.unlink_remote(_repo_dir(), args.id, args.remote, actor=_actor_of(args))
+    if out.json:
+        out.emit_json(_full(result.ticket, out))
+    else:
+        verb = "Unlinked" if result.wrote else "Already unlinked"
+        print(f"{verb} {_rend(result.ticket.id, out)} from {args.remote}")
     return 0
 
 
@@ -735,6 +753,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "comment": cmd_comment,
     "comments": cmd_comments,
     "link": cmd_link,
+    "unlink": cmd_unlink,
     "log": cmd_log,
     "doctor": cmd_doctor,
     "compact": cmd_compact,

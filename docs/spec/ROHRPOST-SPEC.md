@@ -490,6 +490,7 @@ rp drop <id> [--reason "..."]            → dropped
 rp comment <id> "..."                    append local note
 rp comments <id>                         all notes on a ticket
 rp link <id> <remote> <ref>              bind to remote item
+rp unlink <id> <remote>                   remove a remote binding
 rp sync [remote] [--dry-run]             three-way sync
 rp conflicts                             list flagged tickets
 rp resolve <id> --take local|remote      clear a conflict
