@@ -18,14 +18,13 @@ is derived and disposable.
 `tree`/`log`), plus `doctor` and `compact`, are implemented and pass the full
 quality gate. A runner can work a ticket end to end.
 
-**Phase 1 (sync, first cut) — implemented.** The shadow merge base, the
+**Phase 1 (sync) — implemented.** The shadow merge base, the
 three-way per-field merge (with a real `git merge-file` text merge for bodies),
 the GitHub provider, and the `sync`/`conflicts`/`resolve` commands are in. The
 GitHub provider **prefers the `gh` CLI** (pre-authenticated in agent
-environments) and falls back to the REST API via `httpx`. First-cut scope is
-scalar fields (`title`/`body`/`status`); set fields like `labels` need a
-set-wise three-way merge and are the follow-on. Jira/Linear/GitLab providers are
-not yet built.
+environments) and falls back to the REST API via `httpx`. Mapped scalar fields
+use per-field three-way merge, prose bodies use Git's text merge, and `labels`
+use set-wise add/remove semantics. Jira/Linear/GitLab providers are not yet built.
 
 See [`docs/spec/ROHRPOST-SPEC.md`](docs/spec/ROHRPOST-SPEC.md) for the full design,
 [`docs/users/`](docs/users/) for usage, and

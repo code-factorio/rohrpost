@@ -14,6 +14,7 @@ update.
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
 from rohrpost import paths
@@ -48,10 +49,20 @@ def read_shadow(rohrpost_dir: Path, remote: str, ref: str) -> dict[str, object] 
 
 
 def write_shadow(rohrpost_dir: Path, remote: str, ref: str, fields: dict[str, object]) -> None:
-    """Persist the post-sync remote field values as the new merge base."""
+    """Atomically persist the post-sync remote fields as the new merge base."""
     path = shadow_path(rohrpost_dir, remote, ref)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(fields, ensure_ascii=False, sort_keys=True))
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
+        ) as tmp:
+            json.dump(fields, tmp, ensure_ascii=False, sort_keys=True)
+            tmp_path = Path(tmp.name)
+        tmp_path.replace(path)
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 def all_shadowed(rohrpost_dir: Path) -> list[tuple[str, str]]:

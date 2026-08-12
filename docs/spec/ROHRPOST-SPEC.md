@@ -387,7 +387,12 @@ For each mapped field, with `base` = shadow, `local` = folded ticket, `remote` =
 Conflict policy per remote in config: `flag` (default), `local`, `remote`.
 `flag` writes a `set` event moving the ticket to `status: review`, adds a
 `conflict:<remote>` label, and records both values in a comment. `rp conflicts` lists
-them; `rp resolve <id> --take local|remote` clears them.
+them; `rp resolve <id> --take local|remote` clears them. `local` and `remote`
+record the losing value in a comment before applying the configured winner.
+
+Set-valued fields compose independent additions and removals. For example,
+`labels` with base `[a]`, local `[a,b]`, and remote `[a,c]` converges to
+`[a,b,c]` rather than raising a conflict.
 
 ### 8.3 Body merge
 

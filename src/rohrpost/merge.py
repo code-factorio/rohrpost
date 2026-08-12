@@ -12,16 +12,16 @@ mapped field:
 | ``remote == base``       | local changed → push local              |
 | all three differ         | conflict → apply policy                 |
 
-Prose bodies are the one field where per-field LWW is unacceptable — it throws
-away real human writing — so the ``body`` field is merged with a genuine
-three-way text merge via ``git merge-file`` (§8.3), keeping conflict
-markers on collision.
+Set fields compose additions and removals instead of falling through scalar
+conflict handling. Prose bodies are merged with a genuine three-way text merge
+via ``git merge-file`` (§8.3), keeping conflict markers on collision.
 """
 
 from __future__ import annotations
 
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -32,6 +32,9 @@ Policy = Literal["flag", "local", "remote"]
 #: The field name that holds free-form prose and therefore gets a real text merge.
 BODY_FIELD: str = "body"
 
+#: Set-valued fields use three-way set algebra, not scalar conflict handling.
+SET_FIELDS: frozenset[str] = frozenset({"labels"})
+
 
 @dataclass(frozen=True, slots=True)
 class FieldConflict:
@@ -40,6 +43,7 @@ class FieldConflict:
     field: str
     local: object
     remote: object
+    merged: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +60,7 @@ class MergeResult:
     remote_won: dict[str, object] = field(default_factory=dict)
     local_won: dict[str, object] = field(default_factory=dict)
     conflicts: list[FieldConflict] = field(default_factory=list)
+    resolved: list[FieldConflict] = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
@@ -90,12 +95,13 @@ def merge_text(base: str, local: str, remote: str) -> tuple[str, bool]:
 
 
 def three_way(
-    base: dict[str, object],
-    local: dict[str, object],
-    remote: dict[str, object],
+    base: Mapping[str, object],
+    local: Mapping[str, object],
+    remote: Mapping[str, object],
     *,
     policy: Policy = "flag",
     body_field: str = BODY_FIELD,
+    set_fields: frozenset[str] = SET_FIELDS,
 ) -> MergeResult:
     """Resolve every mapped field three-way.
 
@@ -108,6 +114,9 @@ def three_way(
         b = base.get(name)
         lv = local.get(name)
         rv = remote.get(name)
+        if name in set_fields and _all_sets(b, lv, rv):
+            _merge_set(result, name, b, lv, rv)
+            continue
         if lv == rv:
             continue
         if name == body_field and _all_str(b, lv, rv):
@@ -124,7 +133,8 @@ def _merge_body(
     merged, conflict = merge_text(str(b or ""), str(lv or ""), str(rv or ""))
     if conflict:
         if policy == "flag":
-            result.conflicts.append(FieldConflict(name, lv, rv))
+            result.remote_won[name] = merged
+            result.conflicts.append(FieldConflict(name, lv, rv, merged))
             return
         _apply_conflict_policy(result, name, lv, rv, policy)
         return
@@ -146,6 +156,37 @@ def _merge_scalar(
         _apply_conflict_policy(result, name, lv, rv, policy)
 
 
+def _merge_set(result: MergeResult, name: str, base: object, local: object, remote: object) -> None:
+    """Compose independent additions/removals using three-way set semantics."""
+    base_set = _as_set(base)
+    local_set = _as_set(local)
+    remote_set = _as_set(remote)
+    merged = (
+        (base_set - (base_set - local_set) - (base_set - remote_set))
+        | (local_set - base_set)
+        | (remote_set - base_set)
+    )
+    value = sorted(merged)
+    if merged != local_set:
+        result.remote_won[name] = value
+    if merged != remote_set:
+        result.local_won[name] = value
+
+
+def _as_set(value: object) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return {str(item) for item in value}
+    return set()
+
+
+def _all_sets(*values: object) -> bool:
+    return all(
+        value is None or isinstance(value, (list, tuple, set, frozenset)) for value in values
+    )
+
+
 def _all_str(*values: object) -> bool:
     return all(v is None or isinstance(v, str) for v in values)
 
@@ -155,11 +196,21 @@ def _apply_conflict_policy(
 ) -> None:
     """Resolve a conflicting scalar field per the configured policy (§8.2)."""
     if policy == "local":
+        result.resolved.append(FieldConflict(name, local, remote))
         result.local_won[name] = local
     elif policy == "remote":
+        result.resolved.append(FieldConflict(name, local, remote))
         result.remote_won[name] = remote
     else:  # flag — leave for a human; `rp resolve` clears it
         result.conflicts.append(FieldConflict(name, local, remote))
 
 
-__all__ = ["BODY_FIELD", "FieldConflict", "MergeResult", "Policy", "merge_text", "three_way"]
+__all__ = [
+    "BODY_FIELD",
+    "SET_FIELDS",
+    "FieldConflict",
+    "MergeResult",
+    "Policy",
+    "merge_text",
+    "three_way",
+]

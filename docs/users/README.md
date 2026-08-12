@@ -223,8 +223,8 @@ genuine text merge (via `git merge-file`) instead of overwriting.
 
 The GitHub provider **prefers the `gh` CLI** (so it uses your `gh auth login`)
 and falls back to the GitHub REST API via `httpx` (token from `GITHUB_TOKEN` or
-`ROHRPOST_GITHUB_TOKEN`) when `gh` is absent. First-cut sync covers the scalar
-fields above; `labels` are a follow-on.
+`ROHRPOST_GITHUB_TOKEN`) when `gh` is absent. Mapped `labels` merge as a set:
+independent additions/removals compose instead of becoming scalar conflicts.
 
 ---
 

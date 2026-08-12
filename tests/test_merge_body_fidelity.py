@@ -134,7 +134,8 @@ def test_three_way_routes_overlapping_body_into_conflicts() -> None:
     assert result.conflicts[0].field == "body"
     assert result.conflicts[0].local == local
     assert result.conflicts[0].remote == remote
-    assert result.remote_won == {}
+    assert "<<<<<<<" in str(result.remote_won["body"])
+    assert ">>>>>>>" in str(result.remote_won["body"])
     assert result.local_won == {}
 
 

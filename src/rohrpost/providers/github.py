@@ -26,6 +26,8 @@ from typing import Any
 
 import httpx
 
+from rohrpost.exceptions import RemoteItemNotFoundError
+
 
 def _token(env: Mapping[str, str]) -> str | None:
     return env.get("GITHUB_TOKEN") or env.get("ROHRPOST_GITHUB_TOKEN")
@@ -148,6 +150,8 @@ class GitHubProvider:
             if data is not None:
                 return self._to_local(data)
         resp = self._http().get(f"{self.base_url}/{self._issue_path(ref)}", headers=self._headers())
+        if resp.status_code == 404:
+            raise RemoteItemNotFoundError(f"GitHub issue {ref} no longer exists")
         resp.raise_for_status()
         return self._to_local(resp.json())
 

@@ -167,11 +167,11 @@ def _check_shadow_files(rohrpost_dir: Path, log_ok: bool) -> Finding:
         f"{t.id} -> {name}/{ref}"
         for t in by_id.values()
         for name, ref in t.remotes.items()
-        if not shadow.shadow_path(rohrpost_dir, name, ref).is_file()
+        if shadow.read_shadow(rohrpost_dir, name, ref) is None
     ]
     if missing:
         return Finding(
-            "shadow_files", False, f"{len(missing)} missing shadow file(s): {missing[:3]}"
+            "shadow_files", False, f"{len(missing)} missing/invalid shadow file(s): {missing[:3]}"
         )
     return Finding("shadow_files", True, "all linked remotes have shadow files")
 
