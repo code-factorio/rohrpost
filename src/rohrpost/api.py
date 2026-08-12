@@ -175,8 +175,9 @@ def _read_template(path: Path, name: str) -> dict[str, object]:
 
 def _template_values(raw: dict[str, object]) -> dict[str, object]:
     """Collect supported top-level and sectioned template values."""
-    values = {key: value for key, value in raw.items() if key in _TEMPLATE_FIELDS}
-    for section_name in ("defaults", "fields", "ticket"):
+    section_names = ("defaults", "fields", "ticket")
+    values = {key: value for key, value in raw.items() if key not in section_names}
+    for section_name in section_names:
         section = raw.get(section_name)
         if section is None:
             continue

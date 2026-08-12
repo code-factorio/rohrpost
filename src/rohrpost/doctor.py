@@ -20,6 +20,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
+
 from rohrpost import paths, shadow, store
 from rohrpost.config import load_config
 from rohrpost.events import Event
@@ -205,7 +207,7 @@ def _remote_authenticated(name: str, remote_config: dict[str, object]) -> bool:
     """Return whether a remote has credentials available without exposing them."""
     remote_type = str(remote_config.get("type", name)).lower()
     if remote_type == "github":
-        return _github_authenticated()
+        return _github_authenticated(remote_config)
 
     token_env = remote_config.get("token_env") or remote_config.get("credential_env")
     if isinstance(token_env, str) and token_env.strip():
@@ -213,10 +215,23 @@ def _remote_authenticated(name: str, remote_config: dict[str, object]) -> bool:
     return False
 
 
-def _github_authenticated() -> bool:
-    """Check GitHub token variables or the local ``gh`` authentication state."""
-    if os.environ.get("GITHUB_TOKEN") or os.environ.get("ROHRPOST_GITHUB_TOKEN"):
-        return True
+def _github_authenticated(remote_config: dict[str, object]) -> bool:
+    """Verify a GitHub environment token or the local ``gh`` authentication state."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("ROHRPOST_GITHUB_TOKEN")
+    if token and token.strip():
+        base_url = str(remote_config.get("url", "https://api.github.com")).rstrip("/")
+        try:
+            response = httpx.get(
+                f"{base_url}/user",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {token.strip()}",
+                },
+                timeout=10.0,
+            )
+        except httpx.HTTPError:
+            return False
+        return response.is_success
     if shutil.which("gh") is None:
         return False
     try:
