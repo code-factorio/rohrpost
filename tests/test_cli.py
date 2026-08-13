@@ -165,13 +165,15 @@ def test_show_unknown_ticket_exits_one(cwd_repo: Path, capsys: pytest.CaptureFix
     assert "no such ticket" in err
 
 
-def test_command_outside_repo_exits_one(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    cwd = Path.cwd()
-    os.chdir(tmp_path)
-    try:
-        assert cli.main(["list"]) == 1
-    finally:
-        os.chdir(cwd)
+def test_command_outside_repo_exits_one(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Discovery walks the real filesystem upward, so the test would otherwise be
+    # at the mercy of stray ``.rohrpost/`` dirs in shared scratch space (e.g. an
+    # accidental ``rp init`` run from ``/tmp``). Force "no repo found" to keep it
+    # deterministic and focused on the exit-code / error-message path.
+    monkeypatch.setattr(paths, "find_rohrpost_dir", lambda start=None: None)
+    assert cli.main(["list"]) == 1
     _, err = capsys.readouterr()
     assert "not a rohrpost repository" in err
 
