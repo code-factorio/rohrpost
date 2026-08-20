@@ -127,6 +127,39 @@ Rohrpost has native parent and blocking relationships, so no body conventions ar
   `rp set <map-id> body=...`.
 - **Whole-map view**: `rp tree <map-id> --json` renders the epic and its children.
 
+### Handles
+
+Ticket ids are random, so they are hard to type and impossible to remember. A map therefore
+gives every ticket a **handle**: a short, sequential, human-typeable label carried as a
+**leading bracketed prefix in the title**.
+
+```
+[addr]    Human-addressable tickets: how a person points at a Rohrpost ticket   ← the map
+[addr-1]  Which human moments actually require typing a ticket id?              ← a child
+```
+
+The prefix (`addr`) is agreed with the user when the map is charted; the sequence is allocated
+by the charting session. The bare `[addr]` names the map itself, so a human can say
+`/wayfinder addr`.
+
+Three properties make this safe, and all three depend on the handle **not** being an
+identity:
+
+- **`rp` knows nothing about it.** There is no handle field, no uniqueness contract, and no
+  `doctor` check. The 6-char id remains the only identity; the handle is a search key.
+- **Clashes are survivable.** Two branches allocating `[addr-7]` produce two tickets whose
+  titles share a string — not a corrupt id. Nothing is lost; renumbering one repairs it.
+- **Substring search is exact**, because the brackets delimit: `[addr-2]` is not a substring
+  of `[addr-20]`. No special matching logic is needed to look a handle up.
+
+Titles are mutable and sync bidirectionally under per-field LWW (§8.2), so a remote edit can
+drop a handle. That is acceptable because syncing is a deliberate maintainer action, never
+ordinary skill work — but do not treat a handle as a durable external reference.
+
+The decision and its rejected alternatives are in `[addr-5] Should rp resolve a ticket by
+title?`; the clash-handling rules are still being settled in `[addr-8]`.
+
+
 ## Reference
 
 The full user guide is [docs/users/README.md](../users/README.md); the behavioural contract
