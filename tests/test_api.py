@@ -269,6 +269,33 @@ def test_list_filters_by_label_and_status(tmp_repo: Path) -> None:
     assert len(api.list_tickets(tmp_repo, status="open")) == 2
 
 
+def test_list_match_is_a_case_insensitive_title_substring(tmp_repo: Path) -> None:
+    _new(tmp_repo, "Fix token refresh race")
+    _new(tmp_repo, "Profile the fold loop")
+    found = api.list_tickets(tmp_repo, match="TOKEN")
+    assert [t.title for t in found] == ["Fix token refresh race"]
+
+
+def test_list_match_composes_with_other_filters(tmp_repo: Path) -> None:
+    _new(tmp_repo, "[addr-1] typing", labels=["wayfinder:grilling"])
+    _new(tmp_repo, "[addr-2] research")
+    found = api.list_tickets(tmp_repo, match="[addr-", label="wayfinder:grilling")
+    assert [t.title for t in found] == ["[addr-1] typing"]
+
+
+def test_bracketed_handle_does_not_match_a_longer_number(tmp_repo: Path) -> None:
+    """Wayfinder handles rely on the brackets delimiting the number.
+
+    ``[addr-2]`` must not find ``[addr-20]`` — that is what lets a plain
+    substring match address one ticket exactly, so no special matching logic is
+    needed. See the "Handles" section of docs/agents/issue-tracker.md.
+    """
+    _new(tmp_repo, "[addr-2] the second")
+    _new(tmp_repo, "[addr-20] the twentieth")
+    found = api.list_tickets(tmp_repo, match="[addr-2]")
+    assert [t.title for t in found] == ["[addr-2] the second"]
+
+
 def test_tree_returns_children(tmp_repo: Path) -> None:
     epic = _new(tmp_repo, "epic", type="epic")
     child = _new(tmp_repo, "child", parent=epic)

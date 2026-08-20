@@ -118,6 +118,7 @@ rp show <id> --include body,deps,notes,fieldts
 rp comments <id>                      # all local notes
 rp tree <epic-id>                     # an epic and its direct children
 rp list --status open --label auth    # query
+rp list --match "token refresh"      # case-insensitive substring of the title
 rp log [<id>]                         # raw event history
 ```
 

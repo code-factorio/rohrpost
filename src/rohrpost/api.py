@@ -726,12 +726,13 @@ def list_tickets(
     label: str | None = None,
     parent: str | None = None,
     type: str | None = None,
+    match: str | None = None,
     ready: bool = False,
 ) -> list[Ticket]:
     """Query folded tickets with optional filters. ``ready`` selects actionable work."""
     by_id = load_tickets(rohrpost_dir)
     parent_bare = _normalise_structural(parent) if parent else None
-    predicates = _list_predicates(status, label, parent_bare, type, by_id)
+    predicates = _list_predicates(status, label, parent_bare, type, match, by_id)
     out = [t for t in by_id.values() if all(p(t) for p in predicates)]
     if ready:
         out = [t for t in out if is_ready(t, by_id)]
@@ -744,6 +745,7 @@ def _list_predicates(
     label: str | None,
     parent_bare: str | None,
     type: str | None,
+    match: str | None,
     by_id: dict[str, Ticket],
 ) -> list[Callable[[Ticket], bool]]:
     """Build the active filter predicates for :func:`list_tickets`."""
@@ -756,6 +758,9 @@ def _list_predicates(
         preds.append(lambda t: t.parent == parent_bare)
     if type is not None:
         preds.append(lambda t: t.type == type)
+    if match is not None:
+        needle = match.casefold()
+        preds.append(lambda t: needle in t.title.casefold())
     return preds
 
 

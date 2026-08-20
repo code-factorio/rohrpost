@@ -168,6 +168,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--label", default=None, help="filter by label")
     p.add_argument("--parent", default=None, help="filter by parent id")
     p.add_argument("--type", default=None, help="filter by type")
+    p.add_argument("--match", default=None, help="case-insensitive substring of the title")
     _add_json(p)
 
     # claim
@@ -434,6 +435,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         label=args.label,
         parent=args.parent,
         type=args.type,
+        match=args.match,
     )
     if out.json:
         out.emit_json([_short(t, out) for t in tickets])

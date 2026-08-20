@@ -505,7 +505,7 @@ rp new "title" [--template bug] [-p 1]   create ticket
 rp ready [--limit N]                     unblocked, actionable work
 rp show <id> [--include body,deps,notes] ticket; defaults to summary + body
 rp tree <id>                             epic and its children
-rp list [--status] [--label] [--parent]  query
+rp list [--status] [--label] [--parent] [--match]  query
 rp claim <id>                            → in_progress, stamps actor
 rp set <id> field=value ...              generic update
 rp close <id> [--reason "..."]           → done

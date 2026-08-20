@@ -83,6 +83,7 @@ rp show <id> --json                                # machine-readable
 rp comments <id>                                   # all local notes
 rp tree <epic-id>                                  # epic + direct children
 rp list --status open --label auth                 # query
+rp list --match "token refresh"                    # title substring, case-insensitive
 rp log <id>                                        # raw event history
 ```
 

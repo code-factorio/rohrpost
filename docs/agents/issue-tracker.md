@@ -29,7 +29,10 @@ failure (no such ticket, bad status), `2` usage error.
 - **Read a ticket**: `rp show <id> --include body,deps,notes --json`. Notes are the comment
   thread; `rp comments <id> --json` fetches them alone.
 - **List tickets**: `rp list --status open --label <label> --json`. Also filters on
-  `--type` and `--parent`.
+  `--type` and `--parent`, and `--match <text>` for a case-insensitive substring of the
+  title. Filters compose, so `rp list --match "[addr-" --parent <map-id> --json` enumerates
+  one map's handled tickets. There is no separate search command: matching is a filter, and
+  a title is a search key, never an identity.
 - **Find work**: `rp ready --json` — open, unblocked, non-epic tickets, highest priority
   first. This is the queue an agent picks from.
 - **Comment**: `rp comment <id> "<note>"`. Notes are local and never synced.
@@ -150,7 +153,8 @@ identity:
 - **Clashes are survivable.** Two branches allocating `[addr-7]` produce two tickets whose
   titles share a string — not a corrupt id. Nothing is lost; renumbering one repairs it.
 - **Substring search is exact**, because the brackets delimit: `[addr-2]` is not a substring
-  of `[addr-20]`. No special matching logic is needed to look a handle up.
+  of `[addr-20]`. Look a handle up with `rp list --match "[addr-2]" --json`; no special
+  matching logic is needed, which is why there is no dedicated search command.
 
 Titles are mutable and sync bidirectionally under per-field LWW (§8.2), so a remote edit can
 drop a handle. That is acceptable because syncing is a deliberate maintainer action, never
