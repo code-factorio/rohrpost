@@ -1,6 +1,0 @@
-{
-  "name": "local/rohrpost",
-  "version": "0.1.0",
-  "description": "Working tickets in this repo with the rp CLI: create, find ready work, claim, update, and close tickets without leaving the repo",
-  "private": true
-}
