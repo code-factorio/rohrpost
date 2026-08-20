@@ -30,9 +30,9 @@ failure (no such ticket, bad status), `2` usage error.
   thread; `rp comments <id> --json` fetches them alone.
 - **List tickets**: `rp list --status open --label <label> --json`. Also filters on
   `--type` and `--parent`, and `--match <text>` for a case-insensitive substring of the
-  title. Filters compose, so `rp list --match "[addr-" --parent <map-id> --json` enumerates
-  one map's handled tickets. There is no separate search command: matching is a filter, and
-  a title is a search key, never an identity.
+  title. Filters compose, so `rp list --match refresh --status open --json` narrows both
+  ways. There is no separate search command: matching is a filter, and a title is a search
+  key, never an identity.
 - **Find work**: `rp ready --json` — open, unblocked, non-epic tickets, highest priority
   first. This is the queue an agent picks from.
 - **Comment**: `rp comment <id> "<note>"`. Notes are local and never synced.
@@ -152,9 +152,16 @@ identity:
   `doctor` check. The 6-char id remains the only identity; the handle is a search key.
 - **Clashes are survivable.** Two branches allocating `[addr-7]` produce two tickets whose
   titles share a string — not a corrupt id. Nothing is lost; renumbering one repairs it.
-- **Substring search is exact**, because the brackets delimit: `[addr-2]` is not a substring
-  of `[addr-20]`. Look a handle up with `rp list --match "[addr-2]" --json`; no special
-  matching logic is needed, which is why there is no dedicated search command.
+- **Substring search is exact**, because the brackets delimit at both ends: `[addr-2]` is not
+  a substring of `[addr-20]`, and `[addr]` is not one of `[address]`. **Always search the
+  closed form** — `rp list --match "[addr-2]" --json`. Never the open `[addr`, which drags in
+  every prefix that merely starts the same way. `--match` is substring, never regex, and
+  deliberately so: as a regex `[addr]` is a character class matching `a`/`d`/`r` and would
+  silently match nearly every title.
+
+To load a whole map, resolve the handle to an id, then follow the native parent edges rather
+than enumerating children by title — `rp tree <map-id> --json` still finds a child whose
+handle was renumbered or never applied.
 
 Titles are mutable and sync bidirectionally under per-field LWW (§8.2), so a remote edit can
 drop a handle. That is acceptable because syncing is a deliberate maintainer action, never

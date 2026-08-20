@@ -1,0 +1,101 @@
+# Issue tracker: Rohrpost
+
+Issues and specs for this repo live in **[Rohrpost](https://github.com/code-factorio/rohrpost)**, a git-native tracker. Tickets are events in `.rohrpost/log.jsonl`, committed with the code — there is no external service to reach for and no daemon to run, so the tracker branches and merges exactly like the code does.
+
+## Invoking `rp`
+
+`rp` walks up from the current directory to find `.rohrpost/`, so it works from anywhere in the repo. Every command accepts `--json`; **always pass `--json`** — it is the agent-facing interface, and the plain output is for human terminals.
+
+Ticket ids are bare (`a1b2c3`) or rendered with the project's display prefix (`RP-a1b2c3`); `rp` accepts either. Prefer the bare id in scripts. Exit codes: `0` success, `1` domain failure (no such ticket, bad status), `2` usage error.
+
+## Conventions
+
+- **Create a ticket**: `rp new "<title>" --body "<markdown>" --json`. Add `--type task|bug|spike|epic` (default `task`), `-p 0..4` (0 highest), `--label` (repeatable), `--blocked-by <id>` (repeatable), `--parent <epic-id>`.
+- **Read a ticket**: `rp show <id> --include body,deps,notes --json`. Notes are the comment thread; `rp comments <id> --json` fetches them alone.
+- **List tickets**: `rp list --status open --label <label> --json`. Also filters on `--type`, `--parent`, and `--match <text>` for a case-insensitive substring of the title. Filters compose.
+- **Find work**: `rp ready --json` — open, unblocked, non-epic tickets, highest priority first. This is the queue an agent picks from.
+- **Comment**: `rp comment <id> "<note>"`. Notes are local and never synced.
+- **Apply / remove labels**: `rp set <id> labels+=a,b` / `rp set <id> labels-=a`. Set fields use `+=` / `-=` so two concurrent runners compose instead of clobbering.
+- **Update any scalar field**: `rp set <id> status=review priority=1` (`title`, `type`, `status`, `priority`, `assignee`, `parent`, `body`).
+- **Claim**: `rp claim <id>` — moves to `in_progress` and stamps the actor as assignee.
+- **Close**: `rp close <id> --reason "<why>"`. **Abandon**: `rp drop <id> --reason "<why>"`.
+
+All mutations are idempotent: re-running `rp close` on a done ticket appends nothing and still exits `0`.
+
+Multi-line bodies are easiest to pass from a file — `--body "$(cat body.md)"`. A heredoc nested inside `$(...)` breaks on an apostrophe in the prose.
+
+## Statuses
+
+`open` → `in_progress` → `review` → `done`, with `waiting` for "stalled on a human" and `dropped` as the other terminal. `ready` is **derived, never set**: a ticket is ready when it is `open`, not an epic, and every `blocked_by` ticket is `done`. Closing a blocker unblocks its dependents with no extra write.
+
+Note the asymmetry: a **`dropped` blocker does not unblock** its dependents. If a blocker is abandoned, remove the edge explicitly with `rp set <dependent> blocked_by-=<id>`.
+
+## Actors
+
+Agents should identify themselves so the log distinguishes them from humans: set `ROHRPOST_RUNNER=<agent>` and `ROHRPOST_BATCH=<batch>` in the environment (yielding `runner/<agent>@<batch>`), or pass `--actor` per command. Without either, events are attributed to `user/<git config user.email>`.
+
+## When a skill says "publish to the issue tracker"
+
+Run `rp new`, putting the ticket prose in `--body`.
+
+## When a skill says "fetch the relevant ticket"
+
+Run `rp show <id> --include body,deps,notes --json`.
+
+## Pull requests as a request surface
+
+**PRs as a request surface: no.** _(Set to `yes` if this repo should pull external PRs into the triage queue; `/triage` reads this flag.)_
+
+When set to `yes`, read the PR with the host's own CLI, then record each one as a Rohrpost ticket (`rp new "..." --label needs-triage --body "PR: <url>\n\n..."`) so triage state stays in one place. Keep the conversation on the host; keep the triage decision in Rohrpost.
+
+## Wayfinding operations
+
+Used by `/wayfinder`. The **map** is an epic; its **child tickets** are the epic's children. Rohrpost has native parent and blocking relationships, so no body conventions are needed.
+
+- **Map**: an epic labelled `wayfinder:map`, holding the Destination / Notes / Decisions-so-far / Fog body: `rp new "<destination>" --type epic --label wayfinder:map --body "<map body>" --json`. Update it in place with `rp set <map-id> body="<new map body>"` — read the current body first (`rp show <map-id> --include body --json`), edit it, write it back whole.
+- **Child ticket**: `rp new "<question>" --parent <map-id> --label wayfinder:<type> --body "## Question\n\n<...>" --json`, where `<type>` is `research`, `prototype`, `grilling`, or `task`. Epics nest one level: children of the map, never grandchildren.
+- **Blocking**: native `blocked_by`. Set at creation with `--blocked-by <id>` (repeatable) or later with `rp set <child> blocked_by+=<id>` / `blocked_by-=<id>`. A ticket is unblocked when every blocker is `done`.
+- **Frontier query**: `rp ready --json`, then keep tickets whose `parent` is the map id. `ready` already excludes blocked tickets, epics, and anything claimed (a claim moves the ticket to `in_progress`). First in the list wins.
+- **Claim**: `rp claim <id>` — the session's first write, before any work.
+- **Resolve**: `rp comment <id> "<answer>"`, then `rp close <id> --reason "<one-line gist>"`, then append the gist plus a link to the map's Decisions-so-far via `rp set <map-id> body=...`.
+- **Rule out of scope**: `rp drop <id> --reason "<why it sits past the destination>"`, then add a line to the map's **Out of scope** section. Use `drop`, not `close` — `done` would file a mis-scoped ticket among the map's decisions, and `dropped` is the terminal for work abandoned rather than resolved.
+- **Whole-map view**: `rp tree <map-id> --json` renders the epic and its children.
+
+### Handles
+
+Ticket ids are random, so they are hard to type and impossible to remember. Give every map a short **prefix**, agreed with the user when the map is charted, and carry a **handle** as a leading bracketed prefix in each title:
+
+```
+[addr]    Human-addressable tickets: how a person points at a ticket   ← the map
+[addr-1]  Which human moments actually require typing a ticket id?     ← a child
+```
+
+The bare `[addr]` names the map itself, so a human can say `/wayfinder addr` instead of quoting an id. The sequence is allocated by the charting session, which creates the tickets serially.
+
+**`rp` knows nothing about this convention.** There is no handle field, no uniqueness contract, and no `doctor` check — the id remains the only identity and the handle is a search key. That is what makes it safe: two branches both allocating `[addr-7]` produce two titles sharing a string, not a corrupt id. Nothing is lost, and renumbering one repairs it.
+
+#### Searching for a handle
+
+**Always search the closed bracket form.** The brackets delimit at both ends, which makes a plain substring match exact:
+
+```bash
+rp list --match "[addr]" --json       # exactly the map epic
+rp list --match "[addr-2]" --json     # exactly one ticket
+```
+
+`[addr-2]` cannot match `[addr-20]`, and `[addr]` cannot match a map prefixed `address` — in both cases the closing bracket differs. No escaping, no regex, and no rule about choosing non-overlapping prefixes.
+
+Do **not** search the open form `[addr`. It drags in every map whose prefix merely starts the same way, and it is the only shape of this query that can go wrong.
+
+`--match` is a substring, never a regex, and that is deliberate: as a regex, `[addr]` is a character class matching `a`, `d` or `r`, so it would silently match nearly every title in the repo. A dumb matcher cannot produce that answer.
+
+To load a whole map, resolve the handle to an id and then follow the native parent edges — do not enumerate children by title:
+
+```bash
+rp list --match "[addr]" --json       # -> the map's id
+rp tree <map-id> --json               # -> the map and every child
+```
+
+`rp tree` is authoritative where a title search is not: it still finds a child whose handle was renumbered, dropped, or never applied in the first place.
+
+Titles are mutable and sync bidirectionally under per-field last-write-wins, so a remote edit can drop a handle. Do not treat a handle as a durable external reference — it is a convenience for typing, not an identifier to cite in a commit message.
