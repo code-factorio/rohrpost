@@ -20,3 +20,17 @@ This is the opensource project `rohrpost` the tool is supposed to be agent first
 
 ### Committing
 - Commit often, self contained changes with a good concise but comprehensive description of what the change in the commit is addressing.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in Rohrpost itself — this repo dogfoods `rp` (run as `uv run rp ... --json`); no external tracker. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, unchanged: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
