@@ -16,6 +16,7 @@ This is the opensource project `rohrpost` the tool is supposed to be agent first
 ### Documentation
 - Separate documentation for maintainers in docs/maintainers, for end users docs/users and maintain an installable skill for coding agents to understand how to use rohrpost most efficiently in ./skills/rohrpost 
   Use `tessl` for skill review, verification and validation.
+- Research notes — prior art surveyed against primary sources to inform a decision — go in docs/research, one Markdown file per question, every claim carrying its source link. They record evidence, not recommendations; the decision itself belongs in a ticket or an ADR.
 
 
 ### Committing
