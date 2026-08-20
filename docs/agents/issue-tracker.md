@@ -161,7 +161,8 @@ drop a handle. That is acceptable because syncing is a deliberate maintainer act
 ordinary skill work — but do not treat a handle as a durable external reference.
 
 The decision and its rejected alternatives are in `[addr-5] Should rp resolve a ticket by
-title?`; the clash-handling rules are still being settled in `[addr-8]`.
+title?`. Allocating handles and repairing a clash are the charting skill's business, not
+`rp`'s — the tool has no opinion beyond the three properties above.
 
 
 ## Reference
