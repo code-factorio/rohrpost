@@ -63,7 +63,7 @@ Used by `/wayfinder`. The **map** is an epic; its **child tickets** are the epic
 
 ### Handles
 
-Ticket ids are random, so they are hard to type and impossible to remember. Give every map a short **prefix**, agreed with the user when the map is charted, and carry a **handle** as a leading bracketed prefix in each title:
+Ticket ids are random, so they are hard to type and impossible to remember. Give every map a short **prefix** — a single unbroken word, no dashes, agreed with the user when the map is charted — and carry a **handle** as a leading bracketed prefix in each title:
 
 ```
 [addr]    Human-addressable tickets: how a person points at a ticket   ← the map
@@ -76,20 +76,21 @@ The bare `[addr]` names the map itself, so a human can say `/wayfinder addr` ins
 
 #### Searching for a handle
 
-**Always search the closed bracket form.** The brackets delimit at both ends, which makes a plain substring match exact:
+Three query shapes, each exact. The brackets and the dash are the delimiters that make them so:
 
 ```bash
-rp list --match "[addr]" --json       # exactly the map epic
+rp list --match "[addr]"   --json     # the map epic, and nothing else
+rp list --match "[addr-"   --json     # every child of that map
 rp list --match "[addr-2]" --json     # exactly one ticket
 ```
 
-`[addr-2]` cannot match `[addr-20]`, and `[addr]` cannot match a map prefixed `address` — in both cases the closing bracket differs. No escaping, no regex, and no rule about choosing non-overlapping prefixes.
+Each is safe against a longer prefix, because the next character always differs: `[addr]` cannot match `[address]` (`]` vs `e`), `[addr-` cannot match `[address-1]` (`-` vs `e`), and `[addr-2]` cannot match `[addr-20]` (`]` vs `0`). **Never search the bare `[addr`** — dropping the trailing delimiter is what drags in every prefix that merely starts the same way.
 
-Do **not** search the open form `[addr`. It drags in every map whose prefix merely starts the same way, and it is the only shape of this query that can go wrong.
+One naming rule follows: **a map prefix must not contain a dash.** A prefix like `addr-x` puts `[addr-x-1]` in range of `[addr-`, which is the one way to reintroduce the collision. Keep prefixes a single unbroken word.
 
 `--match` is a substring, never a regex, and that is deliberate: as a regex, `[addr]` is a character class matching `a`, `d` or `r`, so it would silently match nearly every title in the repo. A dumb matcher cannot produce that answer.
 
-To load a whole map, resolve the handle to an id and then follow the native parent edges — do not enumerate children by title:
+For the whole map in one call, prefer the native parent edges over a title search:
 
 ```bash
 rp list --match "[addr]" --json       # -> the map's id

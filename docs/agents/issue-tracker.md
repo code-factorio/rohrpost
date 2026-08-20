@@ -152,12 +152,14 @@ identity:
   `doctor` check. The 6-char id remains the only identity; the handle is a search key.
 - **Clashes are survivable.** Two branches allocating `[addr-7]` produce two tickets whose
   titles share a string — not a corrupt id. Nothing is lost; renumbering one repairs it.
-- **Substring search is exact**, because the brackets delimit at both ends: `[addr-2]` is not
-  a substring of `[addr-20]`, and `[addr]` is not one of `[address]`. **Always search the
-  closed form** — `rp list --match "[addr-2]" --json`. Never the open `[addr`, which drags in
-  every prefix that merely starts the same way. `--match` is substring, never regex, and
-  deliberately so: as a regex `[addr]` is a character class matching `a`/`d`/`r` and would
-  silently match nearly every title.
+- **Substring search is exact**, because the brackets and the dash delimit. Three shapes:
+  `[addr]` is the map epic, `[addr-` is every child, `[addr-2]` is one ticket. Each is safe
+  against a longer prefix because the next character differs — `[addr-` cannot match
+  `[address-1]`. **Never search the bare `[addr`**: dropping the trailing delimiter is what
+  drags in every prefix that merely starts the same way. So **a map prefix must not contain a
+  dash** (`addr-x` would put `[addr-x-1]` in range of `[addr-`). `--match` is substring, never
+  regex, and deliberately so: as a regex `[addr]` is a character class matching `a`/`d`/`r`
+  and would silently match nearly every title.
 
 To load a whole map, resolve the handle to an id, then follow the native parent edges rather
 than enumerating children by title — `rp tree <map-id> --json` still finds a child whose
