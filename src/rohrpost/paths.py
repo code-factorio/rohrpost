@@ -29,10 +29,13 @@ TEMPLATES_DIR_NAME: str = "templates"
 BODIES_DIR_NAME: str = "bodies"
 LOCK_FILENAME: str = ".lock"
 
-#: The committed ``.gitattributes`` merge rules from spec §4.
+#: The committed ``.gitattributes`` rules from spec §4. ``text eol=lf`` on the
+#: JSONL event store normalises every checkin to an LF blob and checks the file
+#: out with the blob's exact bytes on any platform, regardless of
+#: ``core.autocrlf`` (docs/research/windows-git-jsonl.md).
 GITATTRIBUTES_RULES: tuple[str, ...] = (
-    ".rohrpost/log.jsonl          merge=union",
-    ".rohrpost/archive/*.jsonl    merge=union",
+    ".rohrpost/log.jsonl          merge=union text eol=lf",
+    ".rohrpost/archive/*.jsonl    merge=union text eol=lf",
     ".rohrpost/shadow/**/*.json   merge=ours",
     ".rohrpost/tickets.jsonl      linguist-generated",
 )
@@ -144,7 +147,12 @@ def _append_unique_lines(path: Path, lines: tuple[str, ...]) -> bool:
 
 
 def write_gitattributes(repo_root: Path) -> bool:
-    """Ensure the committed ``.gitattributes`` carries the union-merge rules. Idempotent."""
+    """Ensure the committed ``.gitattributes`` carries the merge and line-ending rules.
+
+    Idempotent. A file carrying pre-``eol`` rules keeps its old lines and gets the
+    current ones appended; gitattributes resolves overlapping matches per
+    attribute with later lines winning, so the appended rules upgrade the file.
+    """
     return _append_unique_lines(repo_root / ".gitattributes", GITATTRIBUTES_RULES)
 
 

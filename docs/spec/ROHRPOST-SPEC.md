@@ -106,8 +106,8 @@ components, keyed by ticket id.
 `.gitattributes`:
 
 ```gitattributes
-.rohrpost/log.jsonl          merge=union
-.rohrpost/archive/*.jsonl    merge=union
+.rohrpost/log.jsonl          merge=union text eol=lf
+.rohrpost/archive/*.jsonl    merge=union text eol=lf
 .rohrpost/shadow/**/*.json   merge=ours
 .rohrpost/tickets.jsonl      linguist-generated
 ```
@@ -116,7 +116,11 @@ components, keyed by ticket id.
 It is safe here **only because the log is strictly append-only** and every event
 carries a unique id, so duplicates are removed on read. Shadow files use `merge=ours`
 because a stale merge base is harmless — the next sync overwrites it — while a
-conflicted one blocks the sync entirely.
+conflicted one blocks the sync entirely. `text eol=lf` on the JSONL event store
+normalises every checkin to an LF blob and checks the file out with the blob's exact
+bytes on any platform, regardless of `core.autocrlf`: a Windows clone and a Linux
+clone hold byte-identical working trees, and the union driver always compares LF
+lines.
 
 ---
 
@@ -543,7 +547,7 @@ runners invoke to find work, and it must be fast and small.
 
 Checks: log parses; no duplicate event ids after dedupe; every `blocked_by` and
 `parent` resolves; no dependency cycles; every `remotes` entry has a shadow file;
-`.gitattributes` contains the union-merge rules; remote credentials present and
+`.gitattributes` contains the merge and line-ending rules; remote credentials present and
 authenticating; `tickets.jsonl` matches a fresh fold.
 
 This is the one place the pneumatic metaphor is allowed out: *"3 tickets stuck in the

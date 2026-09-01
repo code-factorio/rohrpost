@@ -128,14 +128,14 @@ def _check_gitattributes(rohrpost_dir: Path) -> Finding:
     repo_root = rohrpost_dir.parent
     path = repo_root / ".gitattributes"
     if not path.is_file():
-        return Finding("gitattributes", False, ".gitattributes missing the union-merge rules")
+        return Finding("gitattributes", False, ".gitattributes missing the required rules")
     # UTF-8: the file is user-owned and may carry non-ASCII comments; the
     # Windows locale codec (cp1252) would raise on bytes it cannot decode.
     text = path.read_text(encoding="utf-8")
     missing = [rule for rule in paths.GITATTRIBUTES_RULES if rule not in text]
     if missing:
         return Finding("gitattributes", False, f"missing rule(s): {missing}")
-    return Finding("gitattributes", True, "union-merge rules present")
+    return Finding("gitattributes", True, "merge and line-ending rules present")
 
 
 def _check_snapshot_matches(rohrpost_dir: Path, log_ok: bool) -> Finding:

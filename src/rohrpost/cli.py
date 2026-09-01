@@ -358,7 +358,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     if result.created_config:
         print(f"  wrote {paths.CONFIG_FILENAME}")
     if result.updated_gitattributes:
-        print("  updated .gitattributes (union-merge rules)")
+        print("  updated .gitattributes (merge and line-ending rules)")
     if result.updated_gitignore:
         print("  updated .gitignore (snapshot is regenerable)")
     return 0

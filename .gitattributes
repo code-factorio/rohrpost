@@ -1,4 +1,8 @@
-.rohrpost/log.jsonl          merge=union
-.rohrpost/archive/*.jsonl    merge=union
+# rp-managed rules for the .rohrpost store (spec §4); `rp init` writes the same
+# rules into user repos. text eol=lf keeps the JSONL event log byte-identical
+# across platforms: a Windows checkout with core.autocrlf=true would otherwise
+# fold CRLF into the log and defeat byte-exact union merges.
+.rohrpost/log.jsonl          merge=union text eol=lf
+.rohrpost/archive/*.jsonl    merge=union text eol=lf
 .rohrpost/shadow/**/*.json   merge=ours
 .rohrpost/tickets.jsonl      linguist-generated

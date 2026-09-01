@@ -40,7 +40,7 @@ rp init --prefix FAC        # set the display prefix (2-5 uppercase letters)
 - `.rohrpost/config.toml` — the display prefix (and, later, remote mappings)
 - `.rohrpost/log.jsonl` — the append-only event log (committed; **truth**)
 - `.rohrpost/archive/`, `.rohrpost/shadow/`, `.rohrpost/templates/`
-- `.gitattributes` union-merge rules and a `.gitignore` for the regenerable
+- `.gitattributes` merge and line-ending rules and a `.gitignore` for the regenerable
   `tickets.jsonl` snapshot
 
 `init` is idempotent — re-running fills in anything missing without clobbering
