@@ -20,12 +20,25 @@ working directory:
 <rohrpost-skill>/scripts/rohrpost ready --json --limit 5
 ```
 
+On Windows each shell runs its own wrapper beside this skill — same contract,
+same flags:
+
+```text
+PowerShell:  <rohrpost-skill>\scripts\rohrpost.ps1 ready --json --limit 5
+cmd:         <rohrpost-skill>\scripts\rohrpost.cmd ready --json --limit 5
+Git Bash:    <rohrpost-skill>/scripts/rohrpost ready --json --limit 5
+```
+
+The `.ps1` and `.cmd` wrappers default the install home to
+`%LOCALAPPDATA%\rohrpost` and honour `ROHRPOST_HOME`; the Git Bash wrapper
+keeps the POSIX default and also resolves `.venv\Scripts\rp(.exe)`.
+
 The wrapper preserves the caller's working directory and validates the local
 installation before invoking Rohrpost. If the wrapper is missing or reports
 that the installation is incomplete, load `playbooks/install-local.md` from
-this skill. That playbook asks the user for permission before installing
-anything. Do not bypass the wrapper with a system `rp`, `uvx`, or a different
-checkout.
+this skill; on Windows it routes to `playbooks/windows.md`. That playbook asks
+the user for permission before installing anything. Do not bypass the wrapper
+with a system `rp`, `uvx`, or a different checkout.
 
 Tickets are events in an append-only `.rohrpost/log.jsonl`, committed with the
 code; every ticket is a **fold** over that log. The log is truth — mutate it
@@ -69,15 +82,24 @@ and still exits `0`. Retry freely.
 ```bash
 <rohrpost-skill>/scripts/rohrpost new "Fix token refresh race" --type bug -p 1 --label auth --json
 <rohrpost-skill>/scripts/rohrpost new "Auth epic" --type epic --json
-<rohrpost-skill>/scripts/rohrpost new "Child task" --parent <epic-id> --blocked-by <id> --json --body "$(cat <<'EOF'
+<rohrpost-skill>/scripts/rohrpost new "Child task" --parent <epic-id> --blocked-by <id> --json --body-file - <<'EOF'
 ## Context
 ...
 EOF
-)"
 ```
 
 Types are `task|bug|spike|epic`; `-p 0..4` runs 0 highest to 4 lowest; `--label`
-and `--blocked-by` repeat. A heredoc keeps multi-line markdown bodies intact.
+and `--blocked-by` repeat. Multi-line bodies go through `--body-file` (a path,
+or `-` for stdin). In bash, pipe a heredoc into `-` as above; in PowerShell,
+pipe a here-string:
+
+```powershell
+@'
+## Context
+...
+'@ | <rohrpost-skill>\scripts\rohrpost.ps1 new "Child task" --json --body-file -
+```
+
 `--template <name>` loads defaults from `.rohrpost/templates/<name>.toml`, and
 explicit flags override them. Every ticket starts `open`.
 
@@ -96,7 +118,7 @@ Scalars (`title`, `type`, `status`, `priority`, `assignee`, `parent`, `body`)
 take `=`. The set fields (`labels`, `blocked_by`) take `+=` / `-=` so two runners
 editing at once compose instead of clobbering each other. `body=` replaces the
 whole body: read it with `<rohrpost-skill>/scripts/rohrpost show <id> --json`,
-edit, write it back whole.
+edit, write it back whole — `--body-file` works here too for multi-line text.
 
 ## Statuses and blocking
 

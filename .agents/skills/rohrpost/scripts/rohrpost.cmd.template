@@ -1,0 +1,34 @@
+@echo off
+rem Rohrpost launcher for cmd, materialised from rohrpost.cmd.template.
+rem The wrapper validates the local installation and never bypasses it: it only
+rem ever runs the rp executable from the install's own .venv.
+rem
+rem No placeholder to substitute: the default home resolves %LOCALAPPDATA%\rohrpost
+rem at runtime and ROHRPOST_HOME overrides it.
+
+setlocal
+
+if not defined ROHRPOST_HOME if not defined LOCALAPPDATA (
+    echo Rohrpost is not installed: neither ROHRPOST_HOME nor LOCALAPPDATA is set 1>&2
+    echo Load .agents/skills/rohrpost/playbooks/install-local.md to provision it 1>&2
+    exit /b 1
+)
+
+if defined ROHRPOST_HOME (set "ROHRPOST_HOME_DIR=%ROHRPOST_HOME%") else (set "ROHRPOST_HOME_DIR=%LOCALAPPDATA%\rohrpost")
+
+if not exist "%ROHRPOST_HOME_DIR%\src\" (
+    echo Rohrpost is not installed: source checkout is missing at %ROHRPOST_HOME_DIR%\src 1>&2
+    echo Load .agents/skills/rohrpost/playbooks/install-local.md to provision it 1>&2
+    exit /b 1
+)
+
+set "ROHRPOST_EXE=%ROHRPOST_HOME_DIR%\src\.venv\Scripts\rp.exe"
+if not exist "%ROHRPOST_EXE%" set "ROHRPOST_EXE=%ROHRPOST_HOME_DIR%\src\.venv\Scripts\rp"
+if not exist "%ROHRPOST_EXE%" (
+    echo Rohrpost is not installed: local executable is missing under %ROHRPOST_HOME_DIR%\src\.venv 1>&2
+    echo Load .agents/skills/rohrpost/playbooks/install-local.md to provision it 1>&2
+    exit /b 1
+)
+
+"%ROHRPOST_EXE%" %*
+exit /b %ERRORLEVEL%
