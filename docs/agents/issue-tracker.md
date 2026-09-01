@@ -65,20 +65,30 @@ attributed to `user/<git config user.email>`.
 
 ## When a skill says "publish to the issue tracker"
 
-Run `rp new`. Put the ticket prose in `--body` (a heredoc keeps multi-line markdown intact), or in `--body-file` (portable to PowerShell/cmd; `-` reads stdin, strict UTF-8):
+Run `rp new`. Put one-line prose in `--body`; multi-line prose goes through
+`--body-file` — a path, or `-` for stdin (strict UTF-8). The file form is the
+one every shell passes identically: `$(cat ...)` breaks in PowerShell, and
+`\` line continuations are bash-only, so keep the command on one line.
+cmd has no here-string — write the body to a file and pass the path.
 
 ```bash
-uv run rp new "Fix token refresh race" --type bug -p 1 --label needs-triage --json \
-  --body-file body.md
+uv run rp new "Fix token refresh race" --type bug -p 1 --label needs-triage --json --body-file body.md
 ```
 
+For stdin, Git Bash pipes a heredoc and PowerShell pipes a here-string:
+
 ```bash
-uv run rp new "Fix token refresh race" --type bug -p 1 --label needs-triage --json \
-  --body "$(cat <<'EOF'
+uv run rp new "Fix token refresh race" --type bug -p 1 --json --body-file - <<'EOF'
 ## Context
 ...
 EOF
-)"
+```
+
+```powershell
+@'
+## Context
+...
+'@ | uv run rp new "Fix token refresh race" --type bug -p 1 --json --body-file -
 ```
 
 ## When a skill says "fetch the relevant ticket"

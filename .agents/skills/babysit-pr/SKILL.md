@@ -103,7 +103,10 @@ Done when: the title matches the observed convention, the description follows th
 
 Update the linked ticket or issue state:
 
-- **Rohrpost (`rp`)**:
+- **Rohrpost (`rp`)** — on Windows each shell runs its own wrapper beside the
+  rohrpost skill (`<rohrpost-skill>\scripts\rohrpost.ps1` in PowerShell,
+  `<rohrpost-skill>\scripts\rohrpost.cmd` in cmd, the path shown below in
+  Git Bash):
   - When the PR is ready for review, set the status to `review`: `<rohrpost-skill>/scripts/rohrpost set <id> status=review --json`.
   - Add a progress note: `<rohrpost-skill>/scripts/rohrpost comment <id> "Updated PR #123 with latest review fixes" --json`.
   - When the PR is merged, close the ticket: `<rohrpost-skill>/scripts/rohrpost close <id> --reason "Merged in PR #123" --json`.

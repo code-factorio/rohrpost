@@ -22,7 +22,14 @@ Ticket ids are bare (`a1b2c3`) or rendered with the project's display prefix (`R
 
 All mutations are idempotent: re-running `rp close` on a done ticket appends nothing and still exits `0`.
 
-Multi-line bodies are easiest to pass from a file — `--body "$(cat body.md)"`. A heredoc nested inside `$(...)` breaks on an apostrophe in the prose.
+Multi-line bodies go through `--body-file` (a path, or `-` for stdin) — one command line that runs in PowerShell, cmd and Git Bash alike; `--body "$(cat body.md)"` does not survive the trip. From PowerShell, pipe a here-string:
+
+```powershell
+@'
+## Context
+...
+'@ | rp new "Child task" --json --body-file -
+```
 
 ## Statuses
 
@@ -36,7 +43,7 @@ Agents should identify themselves so the log distinguishes them from humans: set
 
 ## When a skill says "publish to the issue tracker"
 
-Run `rp new`, putting the ticket prose in `--body`.
+Run `rp new`, putting the ticket prose in `--body` (one line) or `--body-file` (multi-line).
 
 ## When a skill says "fetch the relevant ticket"
 
