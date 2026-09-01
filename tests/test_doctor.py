@@ -122,6 +122,17 @@ def test_doctor_flags_missing_gitattributes(tmp_repo: Path) -> None:
     assert doctor.run(tmp_repo) == 1
 
 
+def test_doctor_flags_gitattributes_without_eol_rules(tmp_repo: Path) -> None:
+    """A pre-``eol`` file (merge rules only) fails the check: without ``text eol=lf``
+    a Windows checkout folds CRLF into the log and byte-exact sync is lost."""
+    (tmp_repo.parent / ".gitattributes").write_text(
+        "\n".join(rule.replace(" text eol=lf", "") for rule in paths.GITATTRIBUTES_RULES) + "\n",
+        encoding="utf-8",
+    )
+    _new(tmp_repo)
+    assert doctor.run(tmp_repo) == 1
+
+
 def test_doctor_json_returns_findings(tmp_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _new(tmp_repo)
     code = doctor.run(tmp_repo, json_output=True)
