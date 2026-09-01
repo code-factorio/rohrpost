@@ -100,6 +100,21 @@ def test_fieldts_records_last_write_per_field() -> None:
     assert ticket.fieldts["status"] == T3
 
 
+def test_empty_body_set_folds_to_no_body() -> None:
+    """``set {"body": ""}` clears the body, agreeing with the snapshot round-trip.
+
+    The snapshot inverse maps a falsy body to None, so a fold that kept ``""``
+    would make ``show`` answer differently depending on whether the (regenerable,
+    mtime-gated) snapshot cache or the live fold answered (RP-rf1841).
+    """
+    create = _ev(eid=_id(0), op="create", set_payload={"title": "t", "body": "old"})
+    clear = _ev(eid=_id(1), ts=T1, set_payload={"body": ""})
+    ticket = fold([create, clear])["a1b2c3"]
+    assert ticket.body is None
+    assert ticket.fieldts["body"] == T1
+    assert ticket_to_mapping(ticket)["body"] is None
+
+
 # ---------------------------------------------------------------------------
 # Set add/remove ops (labels, blocked_by)
 # ---------------------------------------------------------------------------

@@ -193,6 +193,10 @@ def _apply_scalar(builder: _Builder, key: str, value: object, ts: str) -> None:
         return
     if key == "parent" and isinstance(value, str):
         value = _bare_id(value)
+    if key == "body" and value == "":
+        # Empty body means no body: the fold must agree with the snapshot
+        # round-trip (which maps a falsy body to None), whatever path answers.
+        value = None
     setattr(builder, key, value)
     builder.fieldts[key] = ts
 

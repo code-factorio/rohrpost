@@ -174,7 +174,7 @@ def test_ps1_wrapper_runs_the_real_rp_from_rohrpost_home(tmp_path: Path) -> None
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.startswith("rp")
+    assert result.stdout.startswith("rohrpost")
 
 
 @needs_pwsh
@@ -242,7 +242,7 @@ def test_cmd_wrapper_runs_the_real_rp_from_rohrpost_home(tmp_path: Path) -> None
     result = _run_cmd(wrapper, caller, _env(tmp_path, rohrpost_home=tmp_path / "home"), "--version")
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.startswith("rp")
+    assert result.stdout.startswith("rohrpost")
 
 
 @needs_windows
