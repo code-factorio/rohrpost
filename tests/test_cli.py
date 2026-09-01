@@ -375,7 +375,8 @@ def test_new_body_file_reads_path(
     cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     body_file = tmp_path / "body.md"
-    body_file.write_text("## Context\n\nline two\n", encoding="utf-8")
+    # write_bytes: no platform newline translation — the file holds exactly these bytes.
+    body_file.write_bytes(b"## Context\n\nline two\n")
     cli.main(["new", "t", "--body-file", str(body_file), "--json"])
     assert json.loads(capsys.readouterr().out)["body"] == "## Context\n\nline two\n"
 
@@ -414,7 +415,7 @@ def test_new_body_file_undecodable_bytes_exit_two(
     assert cli.main(["new", "t", "--body-file", str(body_file)]) == 2
     _, err = capsys.readouterr()
     assert "UTF-8" in err
-    assert str(body_file) in err
+    assert body_file.name in err
 
 
 def test_new_body_file_empty_file_is_valid(
@@ -433,7 +434,7 @@ def test_new_body_file_beats_template_body(
         '[defaults]\nbody = "template body"\n'
     )
     body_file = tmp_path / "body.md"
-    body_file.write_text("explicit body", encoding="utf-8")
+    body_file.write_text("explicit body", encoding="utf-8", newline="")
     cli.main(["new", "t", "--template", "bug", "--body-file", str(body_file), "--json"])
     assert json.loads(capsys.readouterr().out)["body"] == "explicit body"
 
@@ -443,7 +444,7 @@ def test_comment_body_file_appends_note(
 ) -> None:
     tid = _new_ticket_id(capsys, "t")
     body_file = tmp_path / "note.md"
-    body_file.write_text("retried, still 429s\nwith detail", encoding="utf-8")
+    body_file.write_bytes(b"retried, still 429s\nwith detail")
     assert cli.main(["comment", tid, "--body-file", str(body_file)]) == 0
     capsys.readouterr()
     cli.main(["comments", tid, "--json"])
@@ -466,7 +467,7 @@ def test_comment_text_and_body_file_conflict_exits_two(
 ) -> None:
     tid = _new_ticket_id(capsys, "t")
     body_file = tmp_path / "note.md"
-    body_file.write_text("note", encoding="utf-8")
+    body_file.write_bytes(b"note")
     assert cli.main(["comment", tid, "a note", "--body-file", str(body_file)]) == 2
     _, err = capsys.readouterr()
     assert "--body-file" in err
@@ -486,7 +487,7 @@ def test_set_body_file_composes_with_other_assignments(
 ) -> None:
     tid = _new_ticket_id(capsys, "t")
     body_file = tmp_path / "body.md"
-    body_file.write_text("## Decision\n\nuse a flag\n", encoding="utf-8")
+    body_file.write_bytes(b"## Decision\n\nuse a flag\n")
     assert cli.main(["set", tid, "status=in_progress", "--body-file", str(body_file)]) == 0
     capsys.readouterr()
     cli.main(["show", tid, "--json"])
@@ -500,7 +501,7 @@ def test_set_body_assignment_and_body_file_conflict_exits_two(
 ) -> None:
     tid = _new_ticket_id(capsys, "t")
     body_file = tmp_path / "body.md"
-    body_file.write_text("from file", encoding="utf-8")
+    body_file.write_bytes(b"from file")
     assert cli.main(["set", tid, "body=inline", "--body-file", str(body_file)]) == 2
     _, err = capsys.readouterr()
     assert "body=" in err
