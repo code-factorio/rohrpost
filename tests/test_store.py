@@ -58,6 +58,22 @@ def test_blank_lines_ignored(tmp_repo: Path) -> None:
     assert store.read_events(tmp_repo) == []
 
 
+def test_append_lands_exact_lf_bytes(tmp_repo: Path) -> None:
+    """An appended line is exactly ``encode(event) + b"\\n"`` — never CRLF.
+
+    On Windows an ``os.open`` fd without ``O_BINARY`` inherits the CRT's text
+    mode, which rewrites every ``\\n`` to ``\\r\\n`` on disk while ``os.write``
+    still reports the untranslated count — silently breaking the short-write
+    rollback and §7's one-write-one-line invariant.
+    """
+    from rohrpost.events import encode
+
+    store.append_event(tmp_repo, _ev())
+    raw = paths.log_path(tmp_repo).read_bytes()
+    assert raw == encode(_ev()) + b"\n"
+    assert b"\r" not in raw
+
+
 def test_archive_read_before_live_log(tmp_repo: Path) -> None:
     from rohrpost.events import encode
 

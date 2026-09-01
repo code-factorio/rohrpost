@@ -62,6 +62,13 @@ else:
         fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
+# O_BINARY exists only on Windows: without it the CRT opens the fd in text mode
+# and rewrites every appended \n to \r\n on disk, breaking the byte-count math of
+# the short-write rollback and §7's one-write-one-line invariant. On POSIX the
+# getattr guard resolves to 0, where os.open is always binary.
+_O_BINARY = getattr(os, "O_BINARY", 0)
+
+
 @contextmanager
 def file_lock(rohrpost_dir: Path) -> Iterator[None]:
     """Exclusive lock on ``.rohrpost/.lock`` (held for the duration of the block).
@@ -115,7 +122,7 @@ def append_event(rohrpost_dir: Path, event: Event) -> None:
         log = paths.log_path(rohrpost_dir)
         # 0o644 matches the mode ``open("ab")`` would use; without it ``os.open``
         # defaults to 0o777 and (under a typical umask) creates an executable file.
-        fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND | _O_BINARY, 0o644)
         try:
             written = os.write(fd, line)
             if written != len(line):
