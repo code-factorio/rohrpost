@@ -20,9 +20,6 @@ from pathlib import Path
 
 import pytest
 
-SKILL_DIR = Path(__file__).resolve().parents[1] / ".agents" / "skills" / "rohrpost"
-PS1_TEMPLATE = SKILL_DIR / "scripts" / "rohrpost.ps1.template"
-CMD_TEMPLATE = SKILL_DIR / "scripts" / "rohrpost.cmd.template"
 POINTER = "Load .agents/skills/rohrpost/playbooks/install-local.md to provision it"
 
 PWSH: str | None = shutil.which("pwsh") or shutil.which("powershell")
@@ -30,6 +27,26 @@ PWSH: str | None = shutil.which("pwsh") or shutil.which("powershell")
 needs_pwsh = pytest.mark.skipif(PWSH is None, reason="no PowerShell interpreter on PATH")
 needs_posix = pytest.mark.skipif(sys.platform == "win32", reason="the fake rp.exe is a bash script")
 needs_windows = pytest.mark.skipif(sys.platform != "win32", reason="needs Windows")
+
+
+def _find_skill_dir() -> Path:
+    """The real ``.agents/skills/rohrpost`` above this test file.
+
+    mutmut copies the suite into ``mutants/`` (without the skill directory), so a
+    fixed ``parents[1]`` misses it there; walking up finds it in both the normal
+    checkout and the mutant tree (mirrors test_gitattributes_eol.py).
+    """
+    here = Path(__file__).resolve()
+    for candidate in (here, *here.parents):
+        skill = candidate / ".agents" / "skills" / "rohrpost"
+        if skill.is_dir():
+            return skill
+    raise AssertionError(".agents/skills/rohrpost not found above the test file")
+
+
+SKILL_DIR = _find_skill_dir()
+PS1_TEMPLATE = SKILL_DIR / "scripts" / "rohrpost.ps1.template"
+CMD_TEMPLATE = SKILL_DIR / "scripts" / "rohrpost.cmd.template"
 
 
 def test_ps1_template_keeps_its_contract() -> None:
