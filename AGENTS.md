@@ -4,11 +4,15 @@ This is the opensource project `rohrpost` the tool is supposed to be agent first
 
 ### Issue tracker
 
-This repo tracks work in the repo-local `rohrpost` system. See `docs/agents/issue-tracker.md`.
+Issues live in Rohrpost itself — this repo dogfoods `rp` (run as `uv run rp ... --json`); no external tracker. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, unchanged: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-This is a single-context repository; domain documentation is read from the root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
 ### Post implementation tasks
 - After you finished a task, analyze and reflect on the last two changes you made. Identify potential improvements,
@@ -31,17 +35,3 @@ This is a single-context repository; domain documentation is read from the root 
 
 ### Committing
 - Commit often, self contained changes with a good concise but comprehensive description of what the change in the commit is addressing.
-
-## Agent skills
-
-### Issue tracker
-
-Issues live in Rohrpost itself — this repo dogfoods `rp` (run as `uv run rp ... --json`); no external tracker. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five canonical roles, unchanged: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
