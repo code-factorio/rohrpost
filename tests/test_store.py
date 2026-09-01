@@ -99,6 +99,28 @@ def test_concurrent_appends_do_not_lose_lines(tmp_repo: Path) -> None:
     _ = encode  # keep the import meaningful for the codec used implicitly above
 
 
+def test_file_lock_releases_on_exception(tmp_repo: Path) -> None:
+    """The lock is released when the body raises — a leak would deadlock the
+    next acquisition (POSIX blocks forever, Windows errors after ~10 s)."""
+    with pytest.raises(RuntimeError, match="boom"), store.file_lock(tmp_repo):
+        raise RuntimeError("boom")
+    # The released lock can be acquired again immediately.
+    with store.file_lock(tmp_repo):
+        pass
+
+
+def test_lock_file_created_on_first_mutation_and_kept(tmp_repo: Path) -> None:
+    """``.lock`` appears on first mutation and is never deleted: file existence
+    is not lock state, so nothing may remove or write to the file."""
+    lock = paths.lock_path(tmp_repo)
+    assert not lock.exists()
+    store.append_event(tmp_repo, _ev())
+    assert lock.exists()
+    assert lock.read_bytes() == b""
+    store.append_event(tmp_repo, _ev("01K2X8P4RQ7YFZ3M9NVB6TDHWX"))
+    assert lock.exists()
+
+
 def test_event_count_counts_non_blank_lines(tmp_repo: Path) -> None:
     store.append_event(tmp_repo, _ev())
     store.append_event(tmp_repo, _ev("01K2X8P4RQ7YFZ3M9NVB6TDHWX"))

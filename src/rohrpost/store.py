@@ -2,9 +2,10 @@
 
 Spec §3 principle 1 — *the log is truth* — and principle 3 — *one write path* —
 make this module the chokepoint for every mutation. All appends are serialised
-under an advisory :manpage:`fcntl` lock and written with ``O_APPEND`` so two
-processes (or two runners on separate branches after a union merge) can never
-interleave half-lines. Spec §7 spells out the concurrency guarantees.
+under an exclusive lock on ``.rohrpost/.lock`` (:manpage:`fcntl` on POSIX, an
+enforced ``msvcrt`` byte-range lock on Windows) and written with ``O_APPEND`` so
+two processes (or two runners on separate branches after a union merge) can
+never interleave half-lines. Spec §7 spells out the concurrency guarantees.
 
 Reads are deliberately lock-free: the log is strictly append-only and every
 event carries a unique id, so a reader may momentarily see a partial tail line
@@ -15,11 +16,12 @@ ordering belong to the fold (:mod:`rohrpost.fold`), not here.
 
 from __future__ import annotations
 
-import fcntl
 import os
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TextIO
 
 import msgspec
 
@@ -27,24 +29,70 @@ from rohrpost import paths
 from rohrpost.events import Event, decode_line, encode
 from rohrpost.exceptions import StoreError
 
+# The platform seam: msvcrt only exists on Windows, fcntl only on POSIX.
+if sys.platform == "win32":
+    import msvcrt
+
+    # Lock and unlock must name the identical byte range, so both helpers share it.
+    _LOCK_BYTES = 1
+
+    def _acquire(rohrpost_dir: Path, fh: TextIO) -> None:
+        """Lock byte range [0, 1) exclusively; the CRT retries every 1 s, ~10 attempts."""
+        try:
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, _LOCK_BYTES)
+        except OSError as exc:
+            # LK_LOCK exhaustion (EDEADLOCK) after ~10 s, or a lock not yet
+            # released by a dead process: fail loudly instead of half-acquiring.
+            raise StoreError(
+                f"could not lock {rohrpost_dir} within the ~10s wait budget "
+                f"(is another rp process holding it?): {exc}"
+            ) from exc
+
+    def _release(fh: TextIO) -> None:
+        # Unlock must name the exact locked range, so seek back to its start.
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, _LOCK_BYTES)
+else:
+    import fcntl
+
+    def _acquire(rohrpost_dir: Path, fh: TextIO) -> None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+
+    def _release(fh: TextIO) -> None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
 
 @contextmanager
 def file_lock(rohrpost_dir: Path) -> Iterator[None]:
-    """Exclusive advisory lock on ``.rohrpost/.lock`` (held for the duration of the block).
+    """Exclusive lock on ``.rohrpost/.lock`` (held for the duration of the block).
 
-    Used by appends and by the log-rewriting operations (compaction). Blocking:
-    waits for any other holder to release. Safe to re-enter within one process
-    (``flock`` locks are per open file description, not recursive — callers must
-    not nest two ``file_lock`` calls on the same dir).
+    Used by appends and by the log-rewriting operations (compaction). Blocking
+    waits for the current holder to release: unconditionally on POSIX, for the
+    CRT's ~10 s retry budget on Windows (then :class:`StoreError`). Callers must
+    not nest two ``file_lock`` calls on the same dir — nesting deadlocks on POSIX
+    (each ``open()`` gets an independent open file description) and fails after
+    the same ~10 s on Windows (an exclusive range lock cannot overlap itself
+    through a second handle). The POSIX lock is advisory; the Windows byte-range
+    lock is enforced — even plain I/O through a second handle fails inside the
+    locked range.
     """
     lock = paths.lock_path(rohrpost_dir)
     # Open read+write so the file is created if missing, without truncating.
     fh = lock.open("a+", encoding="utf-8")
+    locked = False
     try:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        # The Windows lock covers a byte range from the current position; pin it
+        # to [0, 1), which may sit past EOF of the empty file (documented as
+        # lockable). flock ignores the position, so this is a no-op there.
+        fh.seek(0)
+        _acquire(rohrpost_dir, fh)
+        locked = True
         yield
     finally:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        # Unlocking a never-locked range raises on Windows and would mask the
+        # StoreError from _acquire, so release only what was acquired.
+        if locked:
+            _release(fh)
         fh.close()
 
 
