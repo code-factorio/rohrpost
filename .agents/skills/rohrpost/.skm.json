@@ -1,0 +1,12 @@
+{
+  "skm": 1,
+  "source": "rohrpost",
+  "collectionCommit": "c25ad34f831a11fdd729cab93352eb1224c4f011",
+  "files": {
+    "SKILL.md": "sha256:07514e299a90669f7b608032be1d28c54e3faaa86573e7d9a404bea970760aeb",
+    "playbooks/install-local.md": "sha256:a182d41a1406b8a471dcc489464d8beeb972c7946c5b8b613316175598e1a5d6",
+    "scripts/rohrpost": "sha256:7934ffb635135f87151ffbcc03777dcd89273d7ec15be44af0dc30b931c15b05",
+    "scripts/rohrpost.template": "sha256:92fc5fb709db4734b6e514eac4dd45d04c1370b096bfcd3f473629383f517f21",
+    "scripts/test-rohrpost-wrapper.sh": "sha256:bd43d460f8669bad0d69cc3341d6dad09dc95d65fac4fa588d58d08546b357d4"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "skm": 1,
+  "source": "wayfinder",
+  "collectionCommit": "c25ad34f831a11fdd729cab93352eb1224c4f011",
+  "files": {
+    "SKILL.md": "sha256:0f1f364d3101ec977573ffbf013bdeaca2fb831ce1d578b58dd2475ed60e177c",
+    "agents/openai.yaml": "sha256:88bc81a11a6d52ac67aeaa76b8b619e387020d47c5133a4dd4927fd15c4ad073"
+  }
+}

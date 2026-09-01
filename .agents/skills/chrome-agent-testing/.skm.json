@@ -1,0 +1,11 @@
+{
+  "skm": 1,
+  "source": "chrome-agent-testing",
+  "collectionCommit": "c25ad34f831a11fdd729cab93352eb1224c4f011",
+  "files": {
+    "SKILL.md": "sha256:3ccb62dee11d387a9e06ad98b6d354d13fb60e4906a53548317b976cc45c7d21",
+    "agents/openai.yaml": "sha256:2a6d2a442bfde27a21fe5848670a04bbb0aeb00bfb504afe9acbb298ecd864c8",
+    "references/cdp-cookbook.md": "sha256:ff7ebc5577eda4dfed74ce1bd02af1a4d4c61d805fd27238a0bc8de060e536a5",
+    "scripts/cdp-wait.py": "sha256:6e54e213b9f093241aa4fad801e2b4dc021828bfafa6b337198f44e4a55bb711"
+  }
+}

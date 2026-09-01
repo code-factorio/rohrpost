@@ -1,0 +1,9 @@
+{
+  "skm": 1,
+  "source": "grilling",
+  "collectionCommit": "c25ad34f831a11fdd729cab93352eb1224c4f011",
+  "files": {
+    "SKILL.md": "sha256:d34ffdced71d06b619145b558c1f0022b1529d5fabec015c77433744dca5f8ce",
+    "agents/openai.yaml": "sha256:1411d7df7d99b7e621a1ff8283c8133cc2464be63d064e52d8ce169c6800ee9b"
+  }
+}

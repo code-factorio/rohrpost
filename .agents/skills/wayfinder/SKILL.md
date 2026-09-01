@@ -16,6 +16,10 @@ Wayfinder is **planning** by default: each ticket resolves a decision, and the m
 
 Every map and ticket is an issue, so it has a **name**: its title. In everything the human reads (narration, the map's Decisions-so-far), refer to it by that name, never by a bare id, number, or slug. A wall of `#42, #43, #44` is illegible; names read at a glance. The id and URL don't vanish; a name wraps its link, but they ride _inside_ the name, never stand in for it.
 
+## Confidence
+
+Every recommendation put to the human carries a **confidence score**: a percentage with a one-line reason. Naming the destination, phrasing a ticket, ticket-or-fog calls, a blocking edge, an out-of-scope ruling, the suggested next ticket: if you recommend, you score. The score is your read of your own evidence, not a vote: anchor it honestly (90+ means you'd be surprised to be wrong; 50 is a coin toss) and let the human weigh it.
+
 ## The Map
 
 The map is a single issue on this repo's issue tracker, labelled `wayfinder:map`, the canonical artifact. Its tickets are child issues of the map.
@@ -121,7 +125,7 @@ User invokes with a map (a URL, a number, or whatever short reference the tracke
 
 1. Load the **map**: the low-res view, not every ticket body.
 2. Choose the ticket. If the user named one, use it. Otherwise take the first frontier ticket in order. **Claim it**: assign it to yourself before any work.
-3. Resolve it. **Zoom as needed**: fetch the full body of any related or closed ticket on demand; call the Skill tool for whichever skills the `## Notes` block names. If in doubt, call the Skill tool twice, for "grilling" and "domain-modeling".
+3. Resolve it. **Zoom as needed**: fetch the full body of any related or closed ticket on demand; call the Skill tool for whichever skills the `## Notes` block names. If in doubt, call the Skill tool twice, for "grilling" and "domain-modeling". While resolving a ticket that builds something, **commit each increment as it turns green** — never hold a session's whole output for one end-of-ticket commit — and build in a **worktree or branch of your own**, never in a checkout the human is working in; merge to the main line once it is green. Charting sessions record these execution preferences in the map's **Notes** so every later session and subagent brief inherits them.
 4. Record the resolution: post the answer as a **resolution comment**, **close** the issue, and **append a context pointer** to the map's Decisions-so-far.
 5. Add newly-surfaced tickets (create-then-wire); graduate any fog the answer has made specifiable, clearing each graduated patch from **Not yet specified** so it lives only as its new ticket. If the answer reveals that a ticket (this one or another) sits beyond the destination, **rule it out of scope** rather than resolving it on the route. If the decision invalidates other parts of the map, update or delete those tickets.
 

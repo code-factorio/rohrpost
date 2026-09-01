@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+default_rohrpost_home="/home/vfeenstr/.cache/rohrpost"
+rohrpost_home="${ROHRPOST_HOME:-$default_rohrpost_home}"
+rohrpost_source="$rohrpost_home/src"
+
+if [[ ! -d "$rohrpost_source" ]]; then
+    printf 'Rohrpost is not installed: source checkout is missing at %s\n' "$rohrpost_source" >&2
+    printf 'Load .agents/skills/rohrpost/playbooks/install-local.md to provision it.\n' >&2
+    exit 1
+fi
+
+rohrpost_executable=""
+for candidate in \
+    "$rohrpost_source/.venv/bin/rp" \
+    "$rohrpost_source/.venv/Scripts/rp" \
+    "$rohrpost_source/.venv/Scripts/rp.exe"; do
+    if [[ -x "$candidate" ]]; then
+        rohrpost_executable="$candidate"
+        break
+    fi
+done
+
+if [[ -z "$rohrpost_executable" ]]; then
+    printf 'Rohrpost is not installed: local executable is missing under %s/.venv.\n' "$rohrpost_source" >&2
+    printf 'Load .agents/skills/rohrpost/playbooks/install-local.md to provision it.\n' >&2
+    exit 1
+fi
+
+exec "$rohrpost_executable" "$@"

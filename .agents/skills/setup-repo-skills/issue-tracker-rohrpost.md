@@ -72,6 +72,8 @@ Ticket ids are random, so they are hard to type and impossible to remember. Give
 
 The bare `[addr]` names the map itself, so a human can say `/wayfinder addr` instead of quoting an id. The sequence is allocated by the charting session, which creates the tickets serially.
 
+The number is **identity, not order**. Maps grow as fog graduates into tickets and shrink as tickets are ruled out of scope, so allocate monotonically, never reuse a number, and never renumber to close a gap. `[addr-3]` does not run before `[addr-5]`; the `blocked_by` graph is the only order there is.
+
 **`rp` knows nothing about this convention.** There is no handle field, no uniqueness contract, and no `doctor` check — the id remains the only identity and the handle is a search key. That is what makes it safe: two branches both allocating `[addr-7]` produce two titles sharing a string, not a corrupt id. Nothing is lost, and renumbering one repairs it.
 
 #### Searching for a handle
@@ -89,6 +91,8 @@ Each is safe against a longer prefix, because the next character always differs:
 One naming rule follows: **a map prefix must not contain a dash.** A prefix like `addr-x` puts `[addr-x-1]` in range of `[addr-`, which is the one way to reintroduce the collision. Keep prefixes a single unbroken word.
 
 `--match` is a substring, never a regex, and that is deliberate: as a regex, `[addr]` is a character class matching `a`, `d` or `r`, so it would silently match nearly every title in the repo. A dumb matcher cannot produce that answer.
+
+A handle is a search key, not an address: `rp show`, `rp claim`, `rp close`, `rp comment` and `rp set` all take ids only. Resolve first, then mutate with the id that comes back.
 
 For the whole map in one call, prefer the native parent edges over a title search:
 
