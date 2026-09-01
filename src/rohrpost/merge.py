@@ -77,11 +77,12 @@ def merge_text(base: str, local: str, remote: str) -> tuple[str, bool]:
     try:
         with tempfile.TemporaryDirectory() as tmp:
             base_p, local_p, remote_p = (Path(tmp) / n for n in ("base", "local", "remote"))
-            # UTF-8, not the locale codec: on Windows the default is cp1252,
-            # which cannot represent (and would crash on) emoji/CJK bodies.
-            base_p.write_text(base, encoding="utf-8")
-            local_p.write_text(local, encoding="utf-8")
-            remote_p.write_text(remote, encoding="utf-8")
+            # UTF-8 with no newline translation, never the platform defaults: on
+            # Windows those are cp1252 and \n→\r\n, which would crash on
+            # emoji/CJK bodies and leak CRLF into the merged text.
+            base_p.write_text(base, encoding="utf-8", newline="")
+            local_p.write_text(local, encoding="utf-8", newline="")
+            remote_p.write_text(remote, encoding="utf-8", newline="")
             proc = subprocess.run(
                 ["git", "merge-file", "-p", str(local_p), str(base_p), str(remote_p)],
                 capture_output=True,
