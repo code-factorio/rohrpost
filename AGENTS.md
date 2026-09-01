@@ -1,5 +1,15 @@
 This is the opensource project `rohrpost` the tool is supposed to be agent first, users second.
 
+## Agent skills
+
+### Issue tracker
+
+This repo tracks work in the repo-local `rohrpost` system. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+This is a single-context repository; domain documentation is read from the root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+
 ### Post implementation tasks
 - After you finished a task, analyze and reflect on the last two changes you made. Identify potential improvements,
   optimizations that could enhance code quality, performance, readability or maintanability.

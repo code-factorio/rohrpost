@@ -178,5 +178,5 @@ title?`. Allocating handles and repairing a clash are the charting skill's busin
 
 The full user guide is [docs/users/README.md](../users/README.md); the behavioural contract
 is [docs/spec/ROHRPOST-SPEC.md](../spec/ROHRPOST-SPEC.md). The installable agent skill in
-[skills/skills/rohrpost](../../skills/skills/rohrpost) is the condensed version of this
+[.agents/skills/rohrpost](../../.agents/skills/rohrpost) is the condensed version of this
 workflow.
