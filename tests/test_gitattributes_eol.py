@@ -91,9 +91,22 @@ def test_init_appends_eol_rules_to_a_pre_eol_gitattributes(tmp_path: Path) -> No
     assert paths.write_gitattributes(tmp_path) is False  # second run: no-op
 
 
+def _find_gitattributes() -> Path:
+    """The nearest real ``.gitattributes`` above this test file.
+
+    mutmut copies the suite into ``mutants/`` (no .gitattributes of its own), so a
+    fixed ``parents[1]`` misses the shipped file; walking up finds it in both the
+    normal checkout and the mutant tree.
+    """
+    here = Path(__file__).resolve()
+    for candidate in (here, *here.parents):
+        if (candidate / ".gitattributes").is_file():
+            return candidate / ".gitattributes"
+    raise AssertionError(".gitattributes not found above the test file")
+
+
 def test_this_repo_ships_every_rule_in_its_own_gitattributes() -> None:
     """paths.py and this repo's .gitattributes cannot drift apart."""
-    repo_root = Path(__file__).resolve().parent.parent
-    text = (repo_root / ".gitattributes").read_text(encoding="utf-8")
+    text = _find_gitattributes().read_text(encoding="utf-8")
     for rule in paths.GITATTRIBUTES_RULES:
         assert rule in text
