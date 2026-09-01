@@ -27,5 +27,13 @@ class TicketNotFoundError(TicketError):
     """Raised when a referenced ticket id does not exist in the folded log."""
 
 
+class UsageError(RohrpostError):
+    """Raised for CLI usage mistakes (conflicting flags, unreadable input files).
+
+    The CLI maps this to exit code 2 (argparse's usage-error convention);
+    domain failures remain exit 1.
+    """
+
+
 class RemoteItemNotFoundError(RohrpostError):
     """Raised when a linked item has been deleted from its remote tracker."""

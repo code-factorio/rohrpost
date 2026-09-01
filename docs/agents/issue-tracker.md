@@ -65,7 +65,12 @@ attributed to `user/<git config user.email>`.
 
 ## When a skill says "publish to the issue tracker"
 
-Run `rp new`. Put the ticket prose in `--body` (a heredoc keeps multi-line markdown intact):
+Run `rp new`. Put the ticket prose in `--body` (a heredoc keeps multi-line markdown intact), or in `--body-file` (portable to PowerShell/cmd; `-` reads stdin, strict UTF-8):
+
+```bash
+uv run rp new "Fix token refresh race" --type bug -p 1 --label needs-triage --json \
+  --body-file body.md
+```
 
 ```bash
 uv run rp new "Fix token refresh race" --type bug -p 1 --label needs-triage --json \

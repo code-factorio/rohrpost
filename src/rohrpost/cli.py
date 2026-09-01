@@ -23,7 +23,7 @@ from typing import TextIO
 
 from rohrpost import api, paths
 from rohrpost.config import Config
-from rohrpost.exceptions import RohrpostError
+from rohrpost.exceptions import RohrpostError, UsageError
 from rohrpost.fold import DEFAULT_PRIORITY, derive_status, ticket_to_mapping
 from rohrpost.providers import Provider
 from rohrpost.util import resolve_actor
@@ -116,6 +116,14 @@ def _add_actor(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_body_file(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--body-file",
+        default=None,
+        help="read the text from a file ('-' reads stdin); UTF-8, no locale guessing",
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rp",
@@ -140,6 +148,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parent", default=None, help="parent epic id")
     p.add_argument("--assignee", default=None, help="assignee actor string")
     p.add_argument("--body", default=None, help="ticket body / description")
+    _add_body_file(p)
     _add_actor(p)
     _add_json(p)
 
@@ -182,8 +191,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("set", help="update one or more fields (field=value ...)")
     p.add_argument("id", help="ticket id")
     p.add_argument(
-        "assignments", nargs="+", metavar="field=value", help="e.g. status=done labels+=auth"
+        "assignments", nargs="*", metavar="field=value", help="e.g. status=done labels+=auth"
     )
+    _add_body_file(p)
     _add_actor(p)
     _add_json(p)
 
@@ -204,7 +214,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # comment
     p = sub.add_parser("comment", help="append a local note")
     p.add_argument("id", help="ticket id")
-    p.add_argument("text", help="note text")
+    p.add_argument("text", nargs="?", default=None, help="note text (or pass --body-file)")
+    _add_body_file(p)
     _add_actor(p)
     _add_json(p)
 
@@ -304,6 +315,30 @@ def _actor_of(args: argparse.Namespace) -> str:
     return resolve_actor(explicit=getattr(args, "actor", None))
 
 
+def _read_body_file(spec: str) -> str:
+    """Read a ``--body-file`` argument: a path, or ``-`` for stdin (strict UTF-8).
+
+    A missing file or undecodable bytes is a usage error so pipelines fail
+    loudly instead of writing mangled text into the log. There is no locale
+    guessing: bytes are always decoded as UTF-8, on every platform.
+    """
+    try:
+        raw = sys.stdin.buffer.read() if spec == "-" else Path(spec).read_bytes()
+    except OSError as exc:
+        raise UsageError(f"--body-file: cannot read {spec!r}: {exc.strerror or exc}") from exc
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise UsageError(f"--body-file: {spec!r} is not valid UTF-8 ({exc})") from exc
+
+
+def _body_from_flags(body: str | None, body_file: str | None) -> str | None:
+    """Resolve the mutually exclusive ``--body`` / ``--body-file`` pair into one value."""
+    if body is not None and body_file is not None:
+        raise UsageError("--body and --body-file are mutually exclusive")
+    return _read_body_file(body_file) if body_file is not None else body
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     result = api.init_repo(Path.cwd(), prefix=args.prefix)
     if getattr(args, "json", False):
@@ -333,6 +368,9 @@ def cmd_new(args: argparse.Namespace) -> int:
     out = _make_out(args)
     repo = _repo_dir()
     defaults = api.load_template(repo, args.template) if args.template else {}
+    body = _body_from_flags(args.body, args.body_file)
+    if body is None:
+        body = _template_optional(defaults, "body")
     result = api.create_ticket(
         repo,
         args.title,
@@ -348,7 +386,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         assignee=(
             args.assignee if args.assignee is not None else _template_optional(defaults, "assignee")
         ),
-        body=args.body if args.body is not None else _template_optional(defaults, "body"),
+        body=body,
         actor=_actor_of(args),
     )
     if out.json:
@@ -463,6 +501,12 @@ def cmd_claim(args: argparse.Namespace) -> int:
 def cmd_set(args: argparse.Namespace) -> int:
     out = _make_out(args)
     assignments = [api.parse_assignment(tok) for tok in args.assignments]
+    if args.body_file is not None:
+        if any(a.op == "set" and a.field == "body" for a in assignments):
+            raise UsageError("body= and --body-file are mutually exclusive")
+        assignments.append(api.Assignment("set", "body", _read_body_file(args.body_file)))
+    elif not assignments:
+        raise UsageError("set requires field=value assignments or --body-file")
     result = api.set_fields(_repo_dir(), args.id, assignments, actor=_actor_of(args))
     if out.json:
         out.emit_json(_full(result.ticket, out))
@@ -496,7 +540,15 @@ def cmd_drop(args: argparse.Namespace) -> int:
 
 def cmd_comment(args: argparse.Namespace) -> int:
     out = _make_out(args)
-    result = api.add_comment(_repo_dir(), args.id, args.text, actor=_actor_of(args))
+    if args.text is not None and args.body_file is not None:
+        raise UsageError("comment text and --body-file are mutually exclusive")
+    if args.body_file is not None:
+        text = _read_body_file(args.body_file)
+    elif args.text is not None:
+        text = args.text
+    else:
+        raise UsageError("comment requires note text or --body-file")
+    result = api.add_comment(_repo_dir(), args.id, text, actor=_actor_of(args))
     if out.json:
         out.emit_json(_full(result.ticket, out))
     else:
@@ -883,6 +935,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     handler = _HANDLERS[args.command]
     try:
         return handler(args)
+    except UsageError as exc:
+        print(f"rp: {exc}", file=sys.stderr)
+        return 2
     except RohrpostError as exc:
         print(f"rp: {exc}", file=sys.stderr)
         return 1

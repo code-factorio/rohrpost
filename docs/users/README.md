@@ -71,6 +71,7 @@ dependents with no extra writes.
 rp new "Fix token refresh race"
 rp new "Spike: auth options" --type spike -p 1
 rp new "Child task" --parent <epic-id> --label auth --blocked-by <id> --body "..."
+rp new "Design notes" --body-file notes.md
 rp new "Handle auth failures" --template bug
 ```
 
@@ -79,6 +80,26 @@ Flags: `--type task|bug|spike|epic`, `-p/--priority 0..4` (0 highest), `--label`
 `--template NAME` loads defaults from `.rohrpost/templates/NAME.toml`; command-line
 values override template defaults. A template may use top-level fields or a
 `[defaults]`, `[fields]`, or `[ticket]` table.
+
+### Multi-line bodies: `--body-file`
+
+`--body-file <path|->` reads text from a file, or from stdin with `-`, always
+decoded as strict UTF-8 — no locale guessing. It exists on `new`, `comment`, and
+`set` so multi-line prose never needs a shell heredoc (which PowerShell and cmd
+do not have):
+
+```bash
+rp new "Design notes" --body-file notes.md
+rp set <id> status=review --body-file review.md     # composes with other assignments
+rp comment <id> --body-file findings.md             # replaces the note text argument
+printf '%s\n' "piped prose" | rp new "t" --body-file -
+```
+
+On `new` it is mutually exclusive with `--body`, on `comment` with the positional
+note text, and on `set` with a `body=` assignment — giving both is a usage error
+(exit 2), as is a missing file or bytes that are not valid UTF-8. An explicit
+`--body-file` (like `--body`) beats a template's `body` default; an empty file
+yields an empty body.
 
 ### Find work
 

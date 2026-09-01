@@ -16,6 +16,7 @@ from rohrpost.exceptions import (
     StoreError,
     TicketError,
     TicketNotFoundError,
+    UsageError,
 )
 from rohrpost.fold import Comment, Ticket
 from rohrpost.ids import (
@@ -38,6 +39,7 @@ __all__ = [
     "Ticket",
     "TicketError",
     "TicketNotFoundError",
+    "UsageError",
     "decode_line",
     "encode",
     "is_valid_ticket_id",

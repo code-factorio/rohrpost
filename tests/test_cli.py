@@ -350,3 +350,171 @@ def test_show_renders_remotes_and_close_reason(
     assert "github/7" in out
     assert "close:" in out
     assert "shipped" in out
+
+
+# ---------------------------------------------------------------------------
+# --body-file: multi-line input without heredocs (win-5 contract).
+# ---------------------------------------------------------------------------
+def _patch_stdin(monkeypatch: pytest.MonkeyPatch, data: bytes) -> None:
+    """Replace sys.stdin with a wrapper whose ``.buffer`` yields ``data``."""
+    import io
+
+    raw = io.BytesIO(data)
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(raw, encoding="utf-8"))
+
+
+def _new_ticket_id(capsys: pytest.CaptureFixture[str], *args: str) -> str:
+    cli.main(["new", *args, "--json"])
+    created = json.loads(capsys.readouterr().out)
+    tid = created["id"]
+    assert isinstance(tid, str)
+    return tid.split("-")[1]
+
+
+def test_new_body_file_reads_path(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    body_file = tmp_path / "body.md"
+    body_file.write_text("## Context\n\nline two\n", encoding="utf-8")
+    cli.main(["new", "t", "--body-file", str(body_file), "--json"])
+    assert json.loads(capsys.readouterr().out)["body"] == "## Context\n\nline two\n"
+
+
+def test_new_body_file_dash_reads_stdin_utf8(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_stdin(monkeypatch, "café ☕\n".encode())
+    assert cli.main(["new", "t", "--body-file", "-", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["body"] == "café ☕\n"
+
+
+def test_new_body_and_body_file_conflict_exits_two(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["new", "t", "--body", "x", "--body-file", "-"]) == 2
+    _, err = capsys.readouterr()
+    assert "--body" in err
+    assert "--body-file" in err
+
+
+def test_new_body_file_missing_path_exits_two(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = "no/such/file.md"
+    assert cli.main(["new", "t", "--body-file", missing]) == 2
+    _, err = capsys.readouterr()
+    assert missing in err
+
+
+def test_new_body_file_undecodable_bytes_exit_two(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    body_file = tmp_path / "latin1.md"
+    body_file.write_bytes("caf\xe9".encode("latin-1"))
+    assert cli.main(["new", "t", "--body-file", str(body_file)]) == 2
+    _, err = capsys.readouterr()
+    assert "UTF-8" in err
+    assert str(body_file) in err
+
+
+def test_new_body_file_empty_file_is_valid(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    body_file = tmp_path / "empty.md"
+    body_file.write_bytes(b"")
+    assert cli.main(["new", "t", "--body-file", str(body_file), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["body"] is None
+
+
+def test_new_body_file_beats_template_body(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    (cwd_repo / ".rohrpost" / "templates" / "bug.toml").write_text(
+        '[defaults]\nbody = "template body"\n'
+    )
+    body_file = tmp_path / "body.md"
+    body_file.write_text("explicit body", encoding="utf-8")
+    cli.main(["new", "t", "--template", "bug", "--body-file", str(body_file), "--json"])
+    assert json.loads(capsys.readouterr().out)["body"] == "explicit body"
+
+
+def test_comment_body_file_appends_note(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    tid = _new_ticket_id(capsys, "t")
+    body_file = tmp_path / "note.md"
+    body_file.write_text("retried, still 429s\nwith detail", encoding="utf-8")
+    assert cli.main(["comment", tid, "--body-file", str(body_file)]) == 0
+    capsys.readouterr()
+    cli.main(["comments", tid, "--json"])
+    assert json.loads(capsys.readouterr().out)[0]["text"] == "retried, still 429s\nwith detail"
+
+
+def test_comment_body_file_dash_reads_stdin(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tid = _new_ticket_id(capsys, "t")
+    _patch_stdin(monkeypatch, b"piped note")
+    assert cli.main(["comment", tid, "--body-file", "-"]) == 0
+    capsys.readouterr()
+    cli.main(["comments", tid, "--json"])
+    assert json.loads(capsys.readouterr().out)[0]["text"] == "piped note"
+
+
+def test_comment_text_and_body_file_conflict_exits_two(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    tid = _new_ticket_id(capsys, "t")
+    body_file = tmp_path / "note.md"
+    body_file.write_text("note", encoding="utf-8")
+    assert cli.main(["comment", tid, "a note", "--body-file", str(body_file)]) == 2
+    _, err = capsys.readouterr()
+    assert "--body-file" in err
+
+
+def test_comment_without_text_or_body_file_exits_two(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tid = _new_ticket_id(capsys, "t")
+    assert cli.main(["comment", tid]) == 2
+    _, err = capsys.readouterr()
+    assert "--body-file" in err
+
+
+def test_set_body_file_composes_with_other_assignments(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    tid = _new_ticket_id(capsys, "t")
+    body_file = tmp_path / "body.md"
+    body_file.write_text("## Decision\n\nuse a flag\n", encoding="utf-8")
+    assert cli.main(["set", tid, "status=in_progress", "--body-file", str(body_file)]) == 0
+    capsys.readouterr()
+    cli.main(["show", tid, "--json"])
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["status"] == "in_progress"
+    assert shown["body"] == "## Decision\n\nuse a flag\n"
+
+
+def test_set_body_assignment_and_body_file_conflict_exits_two(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    tid = _new_ticket_id(capsys, "t")
+    body_file = tmp_path / "body.md"
+    body_file.write_text("from file", encoding="utf-8")
+    assert cli.main(["set", tid, "body=inline", "--body-file", str(body_file)]) == 2
+    _, err = capsys.readouterr()
+    assert "body=" in err
+    assert "--body-file" in err
+
+
+def test_set_body_file_empty_clears_body(
+    cwd_repo: Path, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """An empty file is valid input; the fold normalises an empty body to no body."""
+    tid = _new_ticket_id(capsys, "t", "--body", "old")
+    body_file = tmp_path / "empty.md"
+    body_file.write_bytes(b"")
+    assert cli.main(["set", tid, "--body-file", str(body_file)]) == 0
+    capsys.readouterr()
+    cli.main(["show", tid, "--json"])
+    assert json.loads(capsys.readouterr().out)["body"] is None
