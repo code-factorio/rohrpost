@@ -345,7 +345,8 @@ def init_repo(
         config = load_config(rohrpost_dir)
     else:
         chosen = validate_prefix(prefix) if prefix else propose_prefix(repo_root)
-        cfg_path.write_text(render_config_toml(chosen), encoding="utf-8")
+        # newline="\n": config.toml is committed; keep its bytes platform-independent.
+        cfg_path.write_text(render_config_toml(chosen), encoding="utf-8", newline="\n")
         created_config = True
         config = load_config(rohrpost_dir)
 

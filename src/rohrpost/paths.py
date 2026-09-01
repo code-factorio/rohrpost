@@ -129,12 +129,16 @@ def ensure_layout(rohrpost_dir: Path) -> None:
 
 def _append_unique_lines(path: Path, lines: tuple[str, ...]) -> bool:
     """Append any of ``lines`` not already present to ``path``. Returns whether changed."""
-    existing = path.read_text() if path.is_file() else ""
+    # UTF-8: these are user files that may predate rp and carry non-ASCII text;
+    # the Windows locale codec (cp1252) would mangle or reject them.
+    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
     new = [line for line in lines if line not in existing]
     if not new:
         return False
     prefix = "" if (not existing or existing.endswith("\n")) else "\n"
-    with path.open("a", encoding="utf-8") as fh:
+    # newline="\n" keeps the committed files byte-identical across platforms
+    # (Windows text mode would otherwise translate every \n to \r\n).
+    with path.open("a", encoding="utf-8", newline="\n") as fh:
         fh.write(prefix + "\n".join(new) + "\n")
     return True
 

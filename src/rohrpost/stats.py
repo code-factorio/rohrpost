@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import statistics
+import sys
 import time
 from pathlib import Path
 
@@ -42,11 +43,15 @@ def pipe_buf(path: Path | None = None) -> int:
     :func:`rohrpost.store.append_event` exists to protect. Sidecar bodies would
     remove that hazard entirely, which is the whole point of the §13.1 question.
 
-    POSIX guarantees at least 512; Linux reports 4096 everywhere. ``path``
+    POSIX guarantees at least 512; Linux reports 4096 everywhere. Windows has no
+    ``PC_PIPE_BUF`` at all, so the same 4096 default stands in there as the
+    heuristic the decision thresholds are calibrated against. ``path``
     defaults to the current directory. Tests should pass their temp repo so the
     value is resolved against the same filesystem the log lives on.
     """
     target = str(path) if path is not None else "."
+    if sys.platform == "win32":
+        return 4096  # no os.pathconf on Windows; see docstring
     try:
         return os.pathconf(target, "PC_PIPE_BUF")
     except OSError, ValueError:

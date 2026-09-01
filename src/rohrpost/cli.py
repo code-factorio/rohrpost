@@ -12,6 +12,7 @@ Exit codes: ``0`` success, ``1`` a domain failure (no such ticket, bad status,
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -852,8 +853,24 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
 }
 
 
+def _force_utf8_streams() -> None:
+    """Pin stdout/stderr to UTF-8 so all rp output is locale-independent.
+
+    On Windows, Python encodes piped/redirected streams with the ANSI code page
+    (cp1252), which cannot represent non-ASCII ticket text — ``--json`` output
+    (``ensure_ascii=False``) would crash instead of printing. Best-effort: a
+    replaced stream may not support reconfiguration (e.g. test capture).
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(OSError, ValueError):
+                reconfigure(encoding="utf-8")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the ``rp`` CLI. Returns a process exit code."""
+    _force_utf8_streams()
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command is None:

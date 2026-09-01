@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -57,6 +58,31 @@ def test_help_flag_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
 def test_conflicts_empty_message(cwd_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["conflicts"]) == 0
     assert "No conflicts" in capsys.readouterr().out
+
+
+def test_json_output_survives_cp1252_stream(
+    cwd_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """main() pins the output streams to UTF-8 regardless of the platform codec.
+
+    On Windows, piped stdout defaults to the ANSI code page (cp1252), which
+    cannot encode non-ASCII ticket text -- ``--json`` (``ensure_ascii=False``)
+    would raise UnicodeEncodeError instead of printing.
+    """
+    import io
+
+    from rohrpost import api
+
+    repo = paths.find_rohrpost_dir(cwd_repo)
+    assert repo is not None
+    tid = api.create_ticket(repo, "unicode: café 🎉", actor="user/x").ticket.id
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", stream)
+
+    assert cli.main(["show", tid, "--json"]) == 0
+
+    stream.flush()
+    assert "🎉" in stream.buffer.getvalue().decode("utf-8")
 
 
 def test_resolve_requires_take(cwd_repo: Path) -> None:

@@ -73,7 +73,12 @@ class GitHubProvider:
                 stdout = self._gh_runner(args)
             else:
                 proc = subprocess.run(
-                    ["gh", *args], check=True, capture_output=True, text=True, timeout=30
+                    ["gh", *args],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",  # gh emits UTF-8; never the locale codec
+                    timeout=30,
                 )
                 stdout = proc.stdout
             return json.loads(stdout) if stdout.strip() else {}

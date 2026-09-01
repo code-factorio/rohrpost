@@ -16,6 +16,17 @@ def test_write_then_read_round_trips(tmp_repo: Path) -> None:
     assert shadow.read_shadow(tmp_repo, "github", "42") == {"title": "x", "status": "open"}
 
 
+def test_shadow_round_trips_non_ascii_values(tmp_repo: Path) -> None:
+    """Shadow JSON is written and read as UTF-8 on every platform.
+
+    The Windows locale codec (cp1252) cannot decode emoji/CJK values — and its
+    UnicodeDecodeError (a ValueError) would silently report the shadow missing.
+    """
+    fields: dict[str, object] = {"title": "café — 中文 🎉", "status": "open"}
+    shadow.write_shadow(tmp_repo, "github", "42", fields)
+    assert shadow.read_shadow(tmp_repo, "github", "42") == fields
+
+
 def test_shadow_path_sanitises_slashes_in_ref(tmp_repo: Path) -> None:
     # A ref like "owner/repo#5" must not escape the shadow dir.
     path = shadow.shadow_path(tmp_repo, "jira", "PROJ/123")

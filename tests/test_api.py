@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rohrpost import api
+from rohrpost import api, paths
 from rohrpost.exceptions import TicketError, TicketNotFoundError
 
 
@@ -60,6 +60,26 @@ def test_init_is_idempotent(tmp_path: Path) -> None:
     second = api.init_repo(tmp_path, prefix="XXX")
     assert not second.created_config  # did not clobber existing config
     assert second.prefix == "TST"  # kept the original
+
+
+def test_init_committed_files_are_lf_and_utf8(tmp_path: Path) -> None:
+    """rp-written git files are byte-stable across platforms.
+
+    The Windows locale codec (cp1252) must not choke on pre-existing UTF-8
+    content, and text mode must not translate the committed files to CRLF.
+    """
+    (tmp_path / ".gitattributes").write_bytes("régle ©\n".encode())
+    (tmp_path / ".gitignore").write_bytes("# ignorés\n".encode())
+
+    api.init_repo(tmp_path, prefix="TST")
+
+    for name in (".gitattributes", ".gitignore", ".rohrpost/config.toml"):
+        raw = (tmp_path / name).read_bytes()
+        assert b"\r" not in raw, name
+    gitattributes = (tmp_path / ".gitattributes").read_bytes()
+    assert "régle ©\n".encode() in gitattributes  # pre-existing content intact
+    assert paths.GITATTRIBUTES_RULES[0].encode() in gitattributes
+    assert paths.write_gitattributes(tmp_path) is False  # idempotent after a UTF-8 read
 
 
 # ---------------------------------------------------------------------------

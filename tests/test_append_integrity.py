@@ -26,6 +26,7 @@ event id distinct — at any body size.
 from __future__ import annotations
 
 import multiprocessing
+import sys
 import threading
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
@@ -45,6 +46,13 @@ _TICKET: Final[str] = "a1b2c3"
 # E1 workload: a few processes, each appending many events.
 _E1_WRITERS: Final[int] = 4
 _E1_EACH: Final[int] = 16
+
+# True cross-process isolation per platform. POSIX uses "fork": 3.14 defaults to
+# forkserver, which re-imports modules in a spawn helper that cannot see this
+# test module, while fork inherits the worker as-is. Windows has no fork at all;
+# "spawn" re-imports the module in the child, which pytest's sys.path insertion
+# makes importable — and spawned children exercise the real Windows locking seam.
+_MP_CONTEXT: Final[str] = "spawn" if sys.platform == "win32" else "fork"
 
 # E2 workload: more threads for stronger race pressure on the large body.
 _E2_WRITERS: Final[int] = 8
@@ -113,10 +121,9 @@ def test_e1_concurrent_appends_preserve_integrity_across_pipe_buf(
     body = "x" * body_size
     expected = _E1_WRITERS * _E1_EACH
 
-    # Explicit "fork": 3.14 defaults to forkserver, which re-imports modules in a
-    # spawn helper that cannot see this test module. Fork inherits the worker as-is.
-    fork_ctx = multiprocessing.get_context("fork")
-    with ProcessPoolExecutor(max_workers=_E1_WRITERS, mp_context=fork_ctx) as pool:
+    with ProcessPoolExecutor(
+        max_workers=_E1_WRITERS, mp_context=multiprocessing.get_context(_MP_CONTEXT)
+    ) as pool:
         futures = [
             pool.submit(_append_worker, str(tmp_repo), w, _E1_EACH, body)
             for w in range(_E1_WRITERS)

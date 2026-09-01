@@ -129,7 +129,9 @@ def _check_gitattributes(rohrpost_dir: Path) -> Finding:
     path = repo_root / ".gitattributes"
     if not path.is_file():
         return Finding("gitattributes", False, ".gitattributes missing the union-merge rules")
-    text = path.read_text()
+    # UTF-8: the file is user-owned and may carry non-ASCII comments; the
+    # Windows locale codec (cp1252) would raise on bytes it cannot decode.
+    text = path.read_text(encoding="utf-8")
     missing = [rule for rule in paths.GITATTRIBUTES_RULES if rule not in text]
     if missing:
         return Finding("gitattributes", False, f"missing rule(s): {missing}")
@@ -248,6 +250,7 @@ def _gh_cli_authenticated() -> bool:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=10,
         )
     except OSError:

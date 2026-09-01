@@ -21,6 +21,15 @@ def test_doctor_passes_on_healthy_repo(tmp_repo: Path) -> None:
     assert doctor.run(tmp_repo) == 0
 
 
+def test_gitattributes_check_decodes_utf8(tmp_repo: Path) -> None:
+    """The check reads .gitattributes as UTF-8 (the Windows locale is cp1252,
+    which cannot decode arbitrary user bytes)."""
+    raw = "# régles ©\n" + "\n".join(paths.GITATTRIBUTES_RULES) + "\n"
+    (tmp_repo.parent / ".gitattributes").write_bytes(raw.encode("utf-8"))
+    _new(tmp_repo)
+    assert doctor.run(tmp_repo) == 0
+
+
 def test_doctor_requires_remote_credentials(
     tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

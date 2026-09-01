@@ -43,6 +43,23 @@ def test_disjoint_section_edits_merge_cleanly() -> None:
     assert merged == _sections("## Context\nnew context", "## AC\nnew ac")
 
 
+def test_non_ascii_bodies_merge_cleanly_regardless_of_locale() -> None:
+    """The three temp files are written UTF-8, never the platform locale codec.
+
+    Windows' cp1252 cannot encode (and would crash on) emoji/CJK bodies, so the
+    merge-text plumbing must pin the codec explicitly.
+    """
+    base = _sections("## Context\naccept: café", "## AC\nold ac")
+    local = _sections("## Context\naccept: café 🎉", "## AC\nold ac")
+    remote = _sections("## Context\naccept: café", "## AC\nnew ac 中文")
+
+    merged, had_conflict = merge_text(base, local, remote)
+
+    assert had_conflict is False
+    assert "🎉" in merged
+    assert "中文" in merged
+
+
 def test_overlapping_paragraph_edit_is_a_conflict() -> None:
     """Both sides edit the same paragraph differently: conflict, neither edit dropped."""
     base = _sections("## Context\nshared para", "## AC\nthe ac")

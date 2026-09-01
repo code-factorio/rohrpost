@@ -55,6 +55,7 @@ def _git_email() -> str | None:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=5,
         )
         email = result.stdout.strip()

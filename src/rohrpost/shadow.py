@@ -40,7 +40,10 @@ def read_shadow(rohrpost_dir: Path, remote: str, ref: str) -> dict[str, object] 
     if not path.is_file():
         return None
     try:
-        data = json.loads(path.read_text())
+        # UTF-8 to match write_shadow: the Windows locale codec (cp1252) would
+        # mangle non-ASCII field values, and UnicodeDecodeError (a ValueError)
+        # would silently report the shadow as missing.
+        data = json.loads(path.read_text(encoding="utf-8"))
     except OSError:
         return None
     except ValueError:

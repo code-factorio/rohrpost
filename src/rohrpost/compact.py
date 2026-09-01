@@ -73,12 +73,15 @@ def _default_branch(configured: str | None = None) -> str:
 def _git_state(repo_root: Path) -> tuple[bool, str]:
     """Return ``(is_dirty, current_branch)``. Best-effort; ``(False, "")`` without git."""
     try:
+        # encoding="utf-8": git emits UTF-8; the Windows locale codec (cp1252)
+        # would mangle non-ASCII branch names / paths in the guard's output.
         dirty = bool(
             subprocess.run(
                 ["git", "-C", str(repo_root), "status", "--porcelain"],
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=10,
             ).stdout.strip()
         )
@@ -87,6 +90,7 @@ def _git_state(repo_root: Path) -> tuple[bool, str]:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=10,
         ).stdout.strip()
     except FileNotFoundError:
