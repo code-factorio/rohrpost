@@ -326,37 +326,45 @@ operation in the system that can lose data if run carelessly.
 
 ## 7. Concurrency
 
+**The guarantee.** Every append happens inside an exclusive lock on `.rohrpost/.lock`
+and is one write of one line in append mode. Two writers therefore never interleave
+half-lines: the lock serialises them, and a short write is rolled back, never resumed
+(§3 principle 5). Readers stay lock-free and tolerate a torn tail — a partial final line
+fails to decode and is skipped; the fold deduplicates, so nothing a reader briefly sees
+wrong becomes state.
+
 | Hazard | Mitigation |
 |---|---|
-| Two processes writing the log | Advisory lock (`fcntl.flock`) + `O_APPEND` |
+| Two processes writing the log | Exclusive lock on `.lock` + append-mode writes |
 | Two branches writing the log | `merge=union` + dedupe on read |
 | Same ticket, same field, two branches | Per-field LWW by `ts` |
 | Same ticket, different fields | Both survive — this is the common case |
 | Duplicate events after merge | Dropped by `id` during fold |
 | Stale `tickets.jsonl` | Regenerated when mtime is older than `log.jsonl` |
 
-Each append is one `write()` of one line under `O_APPEND`. On Linux a buffered
-`write()` to a regular file holds the inode lock for its whole duration, so a *single*
-`O_APPEND` write is atomic at any size — concurrent appends do not interleave, with or
-without the advisory lock. This was confirmed by **E2**, which saw no corruption
-without the lock even at 64 KB. `PIPE_BUF` is irrelevant here: it governs pipes and
-FIFOs, not regular files, and is not the reason appends are safe.
+**Platform mechanisms** (implementation notes, not contract):
 
-The advisory lock is retained anyway, for three reasons — none of them single-append
-integrity:
+- **POSIX.** The lock is `fcntl.flock` — advisory, blocking, per open file description,
+  released when the holding process dies. Linux's `O_APPEND` makes the offset update and
+  the write a single atomic step, so a single append cannot interleave even without the
+  lock (**E2** saw no corruption without it even at 64 KB). The lock is retained anyway,
+  for three reasons — none of them single-append integrity: portability (POSIX
+  guarantees only the offset update, and NFS cannot do atomic append at all — the lock
+  restores the guarantee on filesystems that lack it); compaction's multi-step rewrite
+  of log and archive files (`tickets.jsonl` needs no lock: it is rebuilt from the fold
+  by an atomic temp-rename); and the short-write backstop (`store.append_event` treats
+  a short write as fatal — it rolls back the partial line and raises rather than
+  resuming). `PIPE_BUF` is irrelevant here: it governs pipes and FIFOs, not regular
+  files.
+- **Windows.** The lock is `msvcrt.locking` on byte range [0, 1) of `.lock` — enforced,
+  so even plain I/O through another handle fails inside the locked range; released when
+  the holding process dies. Acquisition waits are bounded (~10 s, CRT-paced retries) and
+  fail with a loud error rather than hanging. Windows documents no atomic-append
+  equivalent, so the lock — not `O_APPEND` — is what serialises appends; each append is
+  one binary-mode write (no text translation) under the lock.
 
-- **Portability.** POSIX guarantees only that the file-offset *update* is atomic, not
-  the write itself, and NFS cannot do atomic append at all — over NFS two appends can
-  interleave. The lock restores the Linux guarantee on filesystems that lack it.
-- **Multi-step writes.** Compaction rewrites the whole log and relocates events into
-  archive files — not a single `O_APPEND` write, so it holds the lock to stay serialised.
-  (`tickets.jsonl` is a different case: it is rebuilt from the fold by an atomic
-  temp-rename, so it needs no lock.)
-- **Short writes.** `write()` may return fewer bytes than requested, splitting one
-  logical append across two calls and collapsing the single-write argument above.
-  `store.append_event` treats a short write as fatal — it rolls back the partial line
-  and raises rather than resuming — so the invariant holds; the lock is the backstop if
-  it ever did not.
+The contract is the guarantee above; either mechanism satisfies it. Tests map onto the
+guarantees, not the syscalls.
 
 ---
 
@@ -552,7 +560,8 @@ tube for >14d"* is more memorable than "3 stale tickets", and nobody has to type
 - **`httpx`** for providers that speak HTTP directly. One client, sync API, explicit
   timeouts. GitHub prefers the `gh` CLI (reusing the runner's auth) and falls back to
   `httpx` (§8.5).
-- **`fcntl.flock`** for the advisory lock. No dependency, correct on Linux and macOS.
+- **`fcntl.flock` / `msvcrt.locking`** for the exclusive lock (§7). No dependency;
+  correct on Linux, macOS and Windows.
 - Stdlib `secrets` for entropy and a small hand-rolled base32 encoder for ids; a small
   ULID helper rather than a dependency.
 
