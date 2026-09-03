@@ -5,6 +5,13 @@ This document is for people changing the code. It maps the spec
 load-bearing decisions. The spec is the design authority; this guide is the
 code-level companion.
 
+The shipped `rp` is the native C++23 binary under `cpp/`; the Python package
+described here is the **frozen reference** it is tested against
+([ADR-0001](../adr/0001-native-cpp23-rp-with-frozen-python-reference.md)).
+The module map below applies to both trees — each C++ module carries the same
+name — and [native.md](native.md) covers what is specific to the native build,
+its compatibility contract and the conformance suite.
+
 ---
 
 ## Module map

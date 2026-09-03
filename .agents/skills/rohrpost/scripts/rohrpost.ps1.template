@@ -1,6 +1,7 @@
 # Rohrpost launcher for PowerShell, materialised from rohrpost.ps1.template.
 # The wrapper validates the local installation and never bypasses it: it only
-# ever runs the rp executable from the install's own .venv.
+# ever runs a native rp placed under the install home, or the rp executable
+# from the install's own .venv.
 #
 # No placeholder to substitute: the default home resolves %LOCALAPPDATA%\rohrpost
 # at runtime and ROHRPOST_HOME overrides it.
@@ -13,6 +14,14 @@ if (-not $env:ROHRPOST_HOME -and -not $env:LOCALAPPDATA) {
 
 $rohrpostHome = if ($env:ROHRPOST_HOME) { $env:ROHRPOST_HOME } else { Join-Path $env:LOCALAPPDATA 'rohrpost' }
 $rohrpostSource = Join-Path $rohrpostHome 'src'
+
+# A native rp (a release binary or a local cmake build) under <home>\bin needs
+# no source checkout and no Python: prefer it.
+$rohrpostNative = Join-Path $rohrpostHome 'bin\rp.exe'
+if (Test-Path -LiteralPath $rohrpostNative -PathType Leaf) {
+    & $rohrpostNative @args
+    exit $LASTEXITCODE
+}
 
 if (-not (Test-Path -LiteralPath $rohrpostSource -PathType Container)) {
     [Console]::Error.WriteLine("Rohrpost is not installed: source checkout is missing at $rohrpostSource")

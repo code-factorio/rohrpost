@@ -32,21 +32,34 @@ See [`docs/spec/ROHRPOST-SPEC.md`](docs/spec/ROHRPOST-SPEC.md) for the full desi
 
 ## Requirements
 
-- Python **3.14+**
-- [uv](https://docs.astral.sh/uv/) for environment and dependency management
+`rp` ships as a **single native binary** (C++23) for Linux (x86_64, aarch64),
+macOS (universal) and Windows (x86_64, arm64) — no runtime, no toolchain.
+Download it from the [releases](https://github.com/code-factorio/rohrpost/releases)
+and put it on `PATH`, or build it yourself:
+
+```bash
+cmake --preset linux && cmake --build --preset linux   # macos | windows presets exist too
+./build/linux/rp --version
+```
+
+The Python package in `src/rohrpost` is the **frozen reference
+implementation**: the same tool, kept unchanged as the oracle the native binary
+is tested against (see below). It still runs with Python **3.14+** and
+[uv](https://docs.astral.sh/uv/), so `uvx rohrpost` and `uv run rp` keep working
+and are byte-for-byte compatible with the native `rp` — both can share one
+repository.
 
 ## Quick start
 
 ```bash
-uv sync                 # install the project + dev toolchain
-uv run rp init          # scaffold .rohrpost/ in this repo (proposes a prefix)
-uv run rp new "Fix token refresh race" --type bug -p 1 --label auth
-uv run rp ready         # the actionable work queue
-uv run rp show <id>     # bare id or PREFIX-id both work
+rp init                 # scaffold .rohrpost/ in this repo (proposes a prefix)
+rp new "Fix token refresh race" --type bug -p 1 --label auth
+rp ready                # the actionable work queue
+rp show <id>            # bare id or PREFIX-id both work
 ```
 
-`uvx rohrpost` runs the tool with no prerequisite toolchain — which matters
-because agents invoke this from bare containers.
+(`uv sync && uv run rp ...` drives the Python reference instead; the output is
+identical.)
 
 ### A ticket end to end
 
@@ -84,7 +97,13 @@ One write path: mutations go through `rp`, never by hand-editing the log.
 ## Project layout
 
 ```
-src/rohrpost/
+cpp/                     # the native rp: one header + source per module below
+  include/rohrpost/      #   (pyfmt/json/argparse reproduce Python's byte-level rules)
+  src/, tests/           #   implementation, doctest unit tests
+third_party/             # vendored header-only deps: nlohmann/json, toml++, doctest
+tests/conformance/       # differential suite: native rp vs the Python reference
+scripts/ci/plan.py       # the dynamic CI matrix (build legs, release targets, shards)
+src/rohrpost/            # the frozen Python reference (module map below)
 ├── ids.py        # ticket ids (base32) + ULIDs — the load-bearing id scheme
 ├── events.py     # append-only event envelope (msgspec) + JSONL codec
 ├── store.py      # the log: advisory flock + O_APPEND, read archive+log
@@ -104,7 +123,14 @@ src/rohrpost/
 ## Tooling
 
 A deliberate, layered quality gate runs on every push and in CI. Fast checks run
-on commit; the full suite runs on push.
+on commit; the full suite runs on push. The native binary adds three layers: the
+C++ unit tests (`make native-test`), the **conformance suite** that runs every
+command through both implementations and diffs output, exit codes and the event
+log (`make conformance`), and release builds with `-Werror`. CI computes its job
+matrix dynamically (`scripts/ci/plan.py`), builds every target, runs one
+conformance shard per test module per OS, and a `v*` tag publishes the binaries
+with a `SHA256SUMS` manifest. See
+[`docs/maintainers/native.md`](docs/maintainers/native.md).
 
 | Layer         | Tool(s)                                   |
 | ------------- | ----------------------------------------- |

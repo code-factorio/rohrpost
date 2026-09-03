@@ -3,7 +3,11 @@
 PY := uv run
 
 .PHONY: help sync install format lint ty mypy pyright typecheck security structure \
-       complexity test coverage mutation pre-commit clean check
+       complexity test coverage mutation pre-commit clean check \
+       native native-test conformance native-clean
+
+# The native build preset (see CMakePresets.json): linux | macos | windows.
+PRESET ?= $(shell uname -s | tr A-Z a-z | sed 's/darwin/macos/')
 
 help:  ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
@@ -61,8 +65,26 @@ clean:  ## Remove caches and build artifacts
 	rm -rf .mutmut-cache mutants build dist
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
+# ---------------------------------------------------------------------------
+# The native binary (C++23). The Python package is the frozen reference.
+# ---------------------------------------------------------------------------
+native:  ## Configure + build the native rp (PRESET=linux|macos|windows)
+	cmake --preset $(PRESET)
+	cmake --build --preset $(PRESET) --parallel
+
+native-test:  ## Run the C++ unit tests (doctest via ctest)
+native-test: native
+	ctest --preset $(PRESET)
+
+conformance:  ## Differential suite: native rp vs the Python reference (needs a build)
+conformance: native
+	$(PY) pytest -q -m conformance tests/conformance
+
+native-clean:  ## Remove the native build trees
+	rm -rf build
+
 # The full deterministic gate: lint, types, security, structure, metrics, tests.
 # Mutation testing is intentionally excluded (too slow for a default gate).
 check:  ## Full deterministic gate (everything except mutation)
-check: lint typecheck security structure complexity test
+check: lint typecheck security structure complexity test native-test conformance
 	@echo "all deterministic checks passed"

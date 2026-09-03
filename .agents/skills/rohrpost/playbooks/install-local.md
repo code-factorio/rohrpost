@@ -10,10 +10,17 @@ with the Windows equivalents of the checks here.
 
 ## Permission
 
-Ask the user whether to install Rohrpost locally. Explain that this will clone
-the Rohrpost repository, obtain Python 3.14 through `uv`, create an isolated
-environment, install dependencies, and create the local `scripts/rohrpost`
+Ask the user whether to install Rohrpost locally. Explain the two routes and
+which one you will take: the **native binary** (download one release file, no
+runtime needed) or the **Python reference** (clone the repository, obtain
+Python 3.14 through `uv`, create an isolated environment, install
+dependencies). Both routes end by creating the local `scripts/rohrpost`
 wrapper. Stop if the user declines.
+
+Prefer the native route: it is what the wrapper checks first, it needs no
+toolchain, and it produces byte-identical output. Fall back to the Python
+route when no release exists for the platform or when the user asks for the
+source checkout.
 
 ## Location
 
@@ -27,7 +34,30 @@ Keep this variable set for the current shell. The generated wrapper also embeds
 the resolved path, so later calls remain usable when the environment variable
 is not restored.
 
-## Provision
+## Provision: native binary
+
+Releases at `https://github.com/code-factorio/rohrpost/releases` carry one
+binary per platform (`rp-linux-x86_64`, `rp-linux-aarch64`,
+`rp-macos-universal`, plus the Windows `.exe` files) and a `SHA256SUMS`
+manifest. Require `curl` (and `sha256sum` or `shasum`):
+
+```bash
+mkdir -p "$ROHRPOST_HOME/bin"
+asset="rp-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/arm64/aarch64/')"   # macOS: rp-macos-universal
+base="https://github.com/code-factorio/rohrpost/releases/latest/download"
+curl -fsSL "$base/$asset" -o "$ROHRPOST_HOME/bin/rp"
+curl -fsSL "$base/SHA256SUMS" -o "$ROHRPOST_HOME/bin/SHA256SUMS"
+(cd "$ROHRPOST_HOME/bin" && grep " $asset\$" SHA256SUMS | sed "s|$asset|rp|" | sha256sum -c -)
+chmod +x "$ROHRPOST_HOME/bin/rp"
+"$ROHRPOST_HOME/bin/rp" --version
+```
+
+Record the release tag you installed. If a checksum does not match, delete
+the download, stop and report it. With the binary in place, skip to
+"Materialize the wrapper": the wrapper runs `$ROHRPOST_HOME/bin/rp` before it
+looks for a source checkout.
+
+## Provision: Python reference
 
 The canonical source is `https://github.com/code-factorio/rohrpost.git`.
 Require `git`, `curl`, and `uv`. If `uv` is unavailable, install it using the
