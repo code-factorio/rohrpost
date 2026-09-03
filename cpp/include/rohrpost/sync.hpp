@@ -6,9 +6,11 @@
 #include "rohrpost/config.hpp"
 #include "rohrpost/providers/provider.hpp"
 
+#include <array>
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace rp::sync {

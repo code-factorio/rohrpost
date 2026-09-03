@@ -4,6 +4,7 @@
 
 #include "rohrpost/json.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>

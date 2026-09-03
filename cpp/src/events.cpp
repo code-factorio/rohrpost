@@ -3,7 +3,12 @@
 #include "rohrpost/pyfmt.hpp"
 
 #include <algorithm>
+#include <expected>
 #include <format>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
 
 namespace rp {
 namespace {

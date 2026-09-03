@@ -5,10 +5,16 @@
 #include <cfenv>
 #include <charconv>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <format>
 #include <limits>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace rp::py {
 

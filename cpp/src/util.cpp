@@ -7,7 +7,10 @@
 #include <chrono>
 
 #if !defined(_WIN32)
+#include <optional>
 #include <pwd.h>
+#include <string>
+#include <string_view>
 #include <unistd.h>
 #endif
 

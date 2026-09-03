@@ -3,7 +3,12 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <format>
+#include <optional>
+#include <string>
+#include <string_view>
 
 namespace rp::timeutil {
 namespace {

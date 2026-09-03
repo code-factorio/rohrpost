@@ -14,11 +14,19 @@
 #include "rohrpost/util.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <format>
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace rp::cli {
 namespace {

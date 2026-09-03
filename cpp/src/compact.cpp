@@ -13,9 +13,17 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <format>
 #include <map>
+#include <optional>
 #include <set>
+#include <string>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace rp::compact {
 namespace {

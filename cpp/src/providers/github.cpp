@@ -9,6 +9,10 @@
 #include <algorithm>
 #include <chrono>
 #include <format>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
 
 namespace rp::providers {
 namespace {
@@ -91,7 +95,10 @@ Json GitHubProvider::status_map() const {
 
 Json GitHubProvider::to_remote(const Json& local_fields) const {
     Json payload = Json::object();
-    for (const auto& [local_name, remote_name] : scalar_map().items()) {
+    // Bind the maps to locals: a temporary in a range-for initialiser is not
+    // lifetime-extended before C++23's P2718 (GCC 14, MSVC 19.3x).
+    const Json scalars = scalar_map();
+    for (const auto& [local_name, remote_name] : scalars.items()) {
         if (local_fields.contains(local_name)) payload[remote_name.get<std::string>()] = local_fields[local_name];
     }
     if (local_fields.contains("labels") && fields_.contains("labels")) {
@@ -112,7 +119,8 @@ Json GitHubProvider::to_remote(const Json& local_fields) const {
 Json GitHubProvider::to_local(const Json& issue) const {
     Json local = Json::object();
     if (!issue.is_object()) return local;
-    for (const auto& [local_name, remote_name] : scalar_map().items()) {
+    const Json scalars = scalar_map();
+    for (const auto& [local_name, remote_name] : scalars.items()) {
         const std::string rn = remote_name.get<std::string>();
         if (issue.contains(rn)) local[local_name] = issue[rn];
     }
@@ -129,7 +137,8 @@ Json GitHubProvider::to_local(const Json& issue) const {
     }
     if (issue.contains("state") && !issue["state"].is_null()) {
         const std::string state = json::py_str(issue["state"]);
-        for (const auto& [status, mapped] : status_map().items()) {
+        const Json statuses = status_map();
+        for (const auto& [status, mapped] : statuses.items()) {
             if (json::py_equal(mapped, Json(state))) {
                 local["status"] = status;
                 break;

@@ -13,8 +13,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <filesystem>
 #include <format>
 #include <set>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <vector>
 
 namespace rp::doctor {
 namespace {

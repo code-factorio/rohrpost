@@ -16,10 +16,17 @@
 #include <sys/locking.h>
 #include <sys/stat.h>
 #else
+#include <cstddef>
 #include <fcntl.h>
+#include <filesystem>
+#include <string>
+#include <string_view>
 #include <sys/file.h>
 #include <sys/stat.h>
+#include <system_error>
 #include <unistd.h>
+#include <utility>
+#include <vector>
 #endif
 
 namespace rp::store {

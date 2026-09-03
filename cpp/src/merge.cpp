@@ -6,9 +6,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <set>
+#include <string>
+#include <system_error>
+#include <utility>
 
 namespace rp::merge {
 namespace {

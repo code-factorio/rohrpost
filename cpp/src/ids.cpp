@@ -5,7 +5,12 @@
 #include "rohrpost/pyfmt.hpp"
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <format>
+#include <optional>
+#include <string>
+#include <string_view>
 
 namespace rp::ids {
 namespace {

@@ -6,8 +6,14 @@
 #include "rohrpost/store.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <filesystem>
 #include <format>
+#include <optional>
 #include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace rp::sync {
 namespace {

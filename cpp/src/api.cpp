@@ -8,8 +8,18 @@
 #include "rohrpost/store.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <format>
+#include <optional>
 #include <set>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace rp::api {
 namespace {

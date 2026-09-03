@@ -12,10 +12,12 @@
 #include "rohrpost/json.hpp"
 #include "rohrpost/timeutil.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace rp::api {

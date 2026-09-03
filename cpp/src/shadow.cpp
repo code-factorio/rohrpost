@@ -5,7 +5,14 @@
 #include "rohrpost/paths.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <format>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace rp::shadow {
 namespace {

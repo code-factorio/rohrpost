@@ -3,6 +3,9 @@
 
 #include <doctest/doctest.h>
 
+#include <ostream>
+#include <string>
+
 using namespace rp;
 
 TEST_CASE("float_repr follows Python's repr layout") {

@@ -4,8 +4,16 @@
 #include "rohrpost/pyfmt.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <format>
+#include <memory>
+#include <optional>
 #include <regex>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace rp::argparse {
 namespace {

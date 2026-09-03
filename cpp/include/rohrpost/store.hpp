@@ -10,6 +10,7 @@
 
 #include "rohrpost/events.hpp"
 
+#include <cstddef>
 #include <filesystem>
 #include <string>
 #include <utility>

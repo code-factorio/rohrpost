@@ -8,10 +8,20 @@
 #include "rohrpost/store.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
+#include <filesystem>
 #include <functional>
+#include <optional>
 #include <set>
+#include <string>
+#include <string_view>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace rp {
 namespace {

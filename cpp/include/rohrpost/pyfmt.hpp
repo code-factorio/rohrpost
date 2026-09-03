@@ -7,6 +7,7 @@
 // helpers reproduce those rules so output and log bytes stay identical.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>

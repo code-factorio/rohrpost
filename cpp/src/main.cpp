@@ -7,8 +7,10 @@
 #include <vector>
 
 #if defined(_WIN32)
-#include <windows.h>
+#include <cstddef>
 #include <shellapi.h>
+#include <utility>
+#include <windows.h>
 #endif
 
 namespace {

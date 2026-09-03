@@ -3,15 +3,18 @@
 #include <stdexcept>
 
 #if defined(_WIN32)
-#include <windows.h>
 #include <bcrypt.h>
+#include <windows.h>
 #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
 #include <cstdlib>
 #else
+#include <cerrno>
+#include <cstddef>
+#include <cstdint>
 #include <fcntl.h>
+#include <span>
 #include <sys/random.h>
 #include <unistd.h>
-#include <cerrno>
 #endif
 
 namespace rp::entropy {

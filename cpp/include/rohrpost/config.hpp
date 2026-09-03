@@ -7,6 +7,7 @@
 #include "rohrpost/json.hpp"
 #include "rohrpost/ordered_map.hpp"
 
+#include <expected>
 #include <filesystem>
 #include <optional>
 #include <string>

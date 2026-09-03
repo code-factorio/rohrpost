@@ -2,8 +2,11 @@
 
 #include <curl/curl.h>
 
+#include <cstddef>
+#include <expected>
 #include <memory>
 #include <mutex>
+#include <string>
 
 namespace rp::http {
 namespace {

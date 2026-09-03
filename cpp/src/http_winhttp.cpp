@@ -3,6 +3,9 @@
 #include <windows.h>
 #include <winhttp.h>
 
+#include <cstddef>
+#include <expected>
+#include <iterator>
 #include <string>
 
 namespace rp::http {
