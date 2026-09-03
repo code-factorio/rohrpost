@@ -4,7 +4,4 @@
 
 [project]
 prefix = "RP"
-
-[remotes.github]
-url = "https://api.github.com"
-repo = "code-factorio/rohrpost"
+# default_branch = "main"   # the branch `rp compact` requires

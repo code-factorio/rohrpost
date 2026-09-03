@@ -1,68 +1,36 @@
 .DEFAULT_GOAL := help
 
-PY := uv run
-
-.PHONY: help sync install format lint ty mypy pyright typecheck security structure \
-       complexity test coverage mutation pre-commit clean check
+.PHONY: help build release test fmt fmt-check lint check clean install
 
 help:  ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
 	/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-13s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-sync:  ## Install/refresh the project and the dev toolchain (uv sync)
-	uv sync
+build:  ## Debug build (target/debug/rp)
+	cargo build
 
-install:  ## Alias for `sync`
-	uv sync
+release:  ## Optimised build (target/release/rp)
+	cargo build --release
 
-format:  ## Format the codebase with ruff
-	$(PY) ruff format
+test:  ## Unit + end-to-end tests
+	cargo test
 
-lint:  ## Lint the codebase with ruff
-	$(PY) ruff check
+fmt:  ## Format the sources
+	cargo fmt
 
-ty:  ## Type-check with ty
-	$(PY) ty check src tests
+fmt-check:  ## Fail if the sources are not formatted
+	cargo fmt --check
 
-mypy:  ## Type-check with mypy
-	$(PY) mypy
+lint:  ## Clippy with warnings as errors
+	cargo clippy --all-targets -- -D warnings
 
-pyright:  ## Type-check with pyright
-	$(PY) pyright
+install:  ## Install `rp` into ~/.cargo/bin
+	cargo install --path . --locked
 
-typecheck:  ## Run all three type checkers (ty, mypy, pyright)
-typecheck: ty mypy pyright
+clean:  ## Remove build output
+	cargo clean
 
-security:  ## Security lint with bandit
-	$(PY) bandit -c pyproject.toml -r src
-
-structure:  ## Structural analysis (DRY/YAGNI) with pyscn
-	$(PY) pyscn check src
-
-complexity:  ## Cyclomatic complexity & maintainability index (radon + xenon)
-	$(PY) radon cc -a -s src
-	$(PY) radon mi -s src
-	$(PY) xenon --max-absolute B --max-modules A --max-average A src
-
-test:  ## Run the test suite
-	$(PY) pytest
-
-coverage:  ## Run tests with coverage and emit term + html reports
-	$(PY) pytest --cov=rohrpost --cov-report=term-missing --cov-report=html
-
-mutation:  ## Mutation testing with mutmut (slow; not part of `make check`)
-	$(PY) mutmut run
-
-pre-commit:  ## Run every pre-commit hook against all files
-	$(PY) pre-commit run --all-files
-
-clean:  ## Remove caches and build artifacts
-	rm -rf .mypy_cache .pytest_cache .ruff_cache .hypothesis htmlcov coverage.xml
-	rm -rf .mutmut-cache mutants build dist
-	find . -type d -name __pycache__ -prune -exec rm -rf {} +
-
-# The full deterministic gate: lint, types, security, structure, metrics, tests.
-# Mutation testing is intentionally excluded (too slow for a default gate).
-check:  ## Full deterministic gate (everything except mutation)
-check: lint typecheck security structure complexity test
-	@echo "all deterministic checks passed"
+# The full deterministic gate, identical to CI.
+check:  ## Full gate: format, lint, tests
+check: fmt-check lint test
+	@echo "all checks passed"

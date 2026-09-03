@@ -1,0 +1,28 @@
+[package]
+name = "rohrpost"
+version = "0.2.0"
+edition = "2024"
+# File::lock/try_lock/unlock (the cross-platform advisory lock) stabilised in 1.89.
+rust-version = "1.89"
+description = "Git-native ticket system for agentic coding workflows. The repo is canonical."
+license = "MIT"
+repository = "https://github.com/code-factorio/rohrpost"
+keywords = ["agent", "automation", "ticket", "issue-tracker", "git"]
+categories = ["command-line-utilities", "development-tools"]
+
+# Deliberately empty: rohrpost is standard-library only. Agents run `rp` from
+# bare containers, so a single static binary with no supply chain is the point.
+[dependencies]
+
+[lib]
+name = "rohrpost"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rp"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

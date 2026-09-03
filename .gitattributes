@@ -4,5 +4,3 @@
 # fold CRLF into the log and defeat byte-exact union merges.
 .rohrpost/log.jsonl          merge=union text eol=lf
 .rohrpost/archive/*.jsonl    merge=union text eol=lf
-.rohrpost/shadow/**/*.json   merge=ours
-.rohrpost/tickets.jsonl      linguist-generated
