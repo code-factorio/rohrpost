@@ -1,0 +1,122 @@
+name: Release
+
+# A tag `vX.Y.Z` builds every release target from the dynamic plan, runs the
+# conformance suite against each runnable binary, then publishes a GitHub
+# release carrying the binaries and a SHA256SUMS manifest. `workflow_dispatch`
+# builds the same artifacts as a dry run without publishing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      conformance: ${{ steps.plan.outputs.conformance }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: python3 scripts/ci/plan.py --release-only
+      - id: version
+        run: |
+          python3 scripts/ci/check_version.py
+          echo "version=$(python3 scripts/ci/check_version.py --print)" >> "$GITHUB_OUTPUT"
+      - name: Tag matches the project version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          test "$tag" = "$(python3 scripts/ci/check_version.py --print)" || { echo "tag $tag != project version"; exit 1; }
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.release) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-native
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          msvc_arch: ${{ matrix.msvc_arch || '' }}
+      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --build --preset ${{ matrix.preset }} --parallel
+      - name: Unit tests
+        if: ${{ !matrix.cross }}
+        run: ctest --preset ${{ matrix.preset }}
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "build/${{ matrix.preset }}/${{ matrix.exe }}" "dist/${{ matrix.artifact }}${{ matrix.exe == 'rp.exe' && '.exe' || '' }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: error
+
+  conformance:
+    name: Conformance ${{ matrix.module }} (${{ matrix.os }})
+    needs: [plan, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.conformance) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync
+      - uses: actions/download-artifact@v4
+        with:
+          name: rp-${{ matrix.build }}
+          path: native
+      - name: Locate and unlock the binary
+        id: bin
+        shell: bash
+        run: |
+          bin="$(ls native/* | head -n1)"
+          chmod +x "$bin" || true
+          echo "path=$GITHUB_WORKSPACE/$bin" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        env:
+          RP_NATIVE: ${{ steps.bin.outputs.path }}
+        run: uv run pytest -q tests/conformance/${{ matrix.module }}.py
+
+  publish:
+    name: Publish release
+    needs: [plan, build, conformance]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect artifacts and checksums
+        run: |
+          mkdir -p dist
+          find artifacts -type f -exec cp {} dist/ \;
+          (cd dist && sha256sum * > SHA256SUMS)
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-${{ needs.plan.outputs.version }}
+          path: dist/*
+      - name: GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF#refs/tags/}" dist/* \
+            --title "rohrpost ${{ needs.plan.outputs.version }}" \
+            --notes "Native \`rp\` ${{ needs.plan.outputs.version }} for Linux (x86_64, aarch64), macOS (universal) and Windows (x86_64, arm64). Verify downloads against SHA256SUMS."
