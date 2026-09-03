@@ -31,9 +31,9 @@ impl Repo {
         );
         let dir = std::env::temp_dir().join(name);
         std::fs::create_dir_all(&dir).unwrap();
-        Repo {
-            dir: dir.canonicalize().unwrap(),
-        }
+        // Not canonicalised on purpose: on Windows that yields a `\\?\` path,
+        // which child processes cannot use as a working directory.
+        Repo { dir }
     }
 
     fn with_git() -> Repo {
