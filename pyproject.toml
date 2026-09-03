@@ -104,10 +104,14 @@ docstring-code-format = true
 [tool.pytest.ini_options]
 minversion = "8.4"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config --showlocals"
+# The conformance suite (tests/conformance) drives the native binary against
+# the reference and is deselected from the default gate; run it with
+# `make conformance` (or `pytest -m conformance tests/conformance`).
+addopts = "-ra --strict-markers --strict-config --showlocals -m 'not conformance'"
 filterwarnings = ["error"]
 markers = [
     "experiment: opt-in race/perf experiment; skipped unless ROHRPOST_RUN_EXPERIMENTS=1",
+    "conformance: differential test of the native rp against the Python reference",
 ]
 
 # ---------------------------------------------------------------------------
