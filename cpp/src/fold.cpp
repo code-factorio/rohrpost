@@ -166,11 +166,18 @@ void apply_event(Builder& b, const Event& ev) {
 
 void write_snapshot(const std::filesystem::path& snap, const TicketMap& tickets) {
     // Best-effort: the snapshot is disposable, failure to cache is non-fatal.
+    // The reference writes it through Python's text mode, so the line
+    // terminator is the platform's (CRLF on Windows); match it byte for byte.
+#if defined(_WIN32)
+    constexpr std::string_view newline = "\r\n";
+#else
+    constexpr std::string_view newline = "\n";
+#endif
     try {
         std::string payload;
         for (const auto& [id, ticket] : tickets) {
             payload += json::dumps(ticket_to_mapping(ticket), json::kPyDefault);
-            payload.push_back('\n');
+            payload += newline;
         }
         std::filesystem::path tmp = snap;
         tmp.replace_extension(".jsonl.tmp");
