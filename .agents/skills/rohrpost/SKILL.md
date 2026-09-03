@@ -31,14 +31,15 @@ Git Bash:    <rohrpost-skill>/scripts/rohrpost ready --json --limit 5
 
 The `.ps1` and `.cmd` wrappers default the install home to
 `%LOCALAPPDATA%\rohrpost` and honour `ROHRPOST_HOME`; the Git Bash wrapper
-keeps the POSIX default and also resolves `.venv\Scripts\rp(.exe)`.
+keeps the POSIX default. All of them run the single static `rp` binary at
+`<home>/bin/rp` (`rp.exe` on Windows) — there is no runtime to activate.
 
 The wrapper preserves the caller's working directory and validates the local
 installation before invoking Rohrpost. If the wrapper is missing or reports
 that the installation is incomplete, load `playbooks/install-local.md` from
 this skill; on Windows it routes to `playbooks/windows.md`. That playbook asks
 the user for permission before installing anything. Do not bypass the wrapper
-with a system `rp`, `uvx`, or a different checkout.
+with a system `rp` or a different checkout.
 
 Tickets are events in an append-only `.rohrpost/log.jsonl`, committed with the
 code; every ticket is a **fold** over that log. The log is truth — mutate it
@@ -67,7 +68,7 @@ default is `user/<git config user.email>`, i.e. a human.
 
 `ready --json` is the call that matters — it is how work is found. Its output,
 like `list`, carries no bodies, so `show` is the only way to read ticket prose.
-Comments are local notes and never sync anywhere.
+Comments are local notes.
 
 Abandon instead of closing when the work should not happen:
 `<rohrpost-skill>/scripts/rohrpost drop <id> --reason "superseded by <other-id>" --json`.
@@ -157,13 +158,13 @@ renaming it re-renders every id with no migration.
 ## When state looks wrong
 
 ```bash
-<rohrpost-skill>/scripts/rohrpost doctor --json     # log integrity, dangling refs, cycles, git rules, snapshot freshness
+<rohrpost-skill>/scripts/rohrpost doctor --json     # log integrity, dangling refs, cycles, git rules
 <rohrpost-skill>/scripts/rohrpost log <id> --json   # the history that produced the current fold
 <rohrpost-skill>/scripts/rohrpost stats --json      # body and line size distributions, fold timing
 ```
 
-`doctor` exits non-zero when something needs attention. A stale `tickets.jsonl`
-is harmless — it is a regenerable cache, and only `log.jsonl` is truth.
+`doctor` exits non-zero when something needs attention. Only `log.jsonl` (plus
+`archive/`) is truth; every ticket is re-folded from it on each call.
 
 ## Repository-level commands
 
@@ -173,32 +174,12 @@ archives long-terminal tickets and is the one operation that rewrites the log,
 so it refuses unless the tree is clean and `HEAD` is on the default branch. Run
 compaction when a maintainer asks for it.
 
-## Mirroring to a remote tracker
-
-Available when the repo configures one (a `[remotes.*]` table in
-`.rohrpost/config.toml`). Rohrpost reaches the network during an explicit
-`sync` and at no other time.
-
-```bash
-<rohrpost-skill>/scripts/rohrpost link <id> github 42 --json          # bind a ticket to issue #42
-<rohrpost-skill>/scripts/rohrpost unlink <id> github --json
-<rohrpost-skill>/scripts/rohrpost sync --dry-run --json               # print the plan, touch nothing
-<rohrpost-skill>/scripts/rohrpost sync --json
-<rohrpost-skill>/scripts/rohrpost conflicts --json                    # tickets where both sides changed fields
-<rohrpost-skill>/scripts/rohrpost resolve <id> --take local --json    # after fixing the field
-```
-
-Sync is a three-way merge against a shadow snapshot: prose bodies get a real
-text merge, and a contested field moves the ticket to `review` with a
-`conflict:<remote>` label. It is idempotent, and prefers the pre-authenticated
-`gh` CLI over the REST API. **Treat linking, syncing and conflict resolution as
-maintainer decisions** — do them on request, not as part of ordinary ticket
-work.
-
 ## Boundaries
 
-Rohrpost stores tickets and local notes. Ingesting remote comments, running
-webhooks, tracking CI and deciding *when* something is `waiting` belong to the
+Rohrpost stores tickets and local notes, and it is the only tracker: there is
+no `link`, `sync` or `conflicts` command, and `rp` never touches the network.
+Mirroring into GitHub or Jira, ingesting remote comments, running webhooks,
+tracking CI and deciding *when* something is `waiting` belong to the
 surrounding system. To ask a human something, record the question with
 `<rohrpost-skill>/scripts/rohrpost comment <id> --json` and set `status=waiting`;
 that system decides when to clear it.

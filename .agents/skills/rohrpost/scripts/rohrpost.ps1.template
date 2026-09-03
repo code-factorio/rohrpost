@@ -1,6 +1,6 @@
 # Rohrpost launcher for PowerShell, materialised from rohrpost.ps1.template.
 # The wrapper validates the local installation and never bypasses it: it only
-# ever runs the rp executable from the install's own .venv.
+# ever runs the rp.exe binary from the install home.
 #
 # No placeholder to substitute: the default home resolves %LOCALAPPDATA%\rohrpost
 # at runtime and ROHRPOST_HOME overrides it.
@@ -12,27 +12,10 @@ if (-not $env:ROHRPOST_HOME -and -not $env:LOCALAPPDATA) {
 }
 
 $rohrpostHome = if ($env:ROHRPOST_HOME) { $env:ROHRPOST_HOME } else { Join-Path $env:LOCALAPPDATA 'rohrpost' }
-$rohrpostSource = Join-Path $rohrpostHome 'src'
+$rohrpostExecutable = Join-Path $rohrpostHome 'bin\rp.exe'
 
-if (-not (Test-Path -LiteralPath $rohrpostSource -PathType Container)) {
-    [Console]::Error.WriteLine("Rohrpost is not installed: source checkout is missing at $rohrpostSource")
-    [Console]::Error.WriteLine('Load .agents/skills/rohrpost/playbooks/install-local.md to provision it')
-    exit 1
-}
-
-$rohrpostExecutable = ''
-foreach ($candidate in @(
-    (Join-Path $rohrpostSource '.venv\Scripts\rp.exe'),
-    (Join-Path $rohrpostSource '.venv\Scripts\rp')
-)) {
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        $rohrpostExecutable = $candidate
-        break
-    }
-}
-
-if (-not $rohrpostExecutable) {
-    [Console]::Error.WriteLine("Rohrpost is not installed: local executable is missing under $rohrpostSource\.venv")
+if (-not (Test-Path -LiteralPath $rohrpostExecutable -PathType Leaf)) {
+    [Console]::Error.WriteLine("Rohrpost is not installed: rp.exe is missing under $rohrpostHome\bin")
     [Console]::Error.WriteLine('Load .agents/skills/rohrpost/playbooks/install-local.md to provision it')
     exit 1
 }

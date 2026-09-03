@@ -4,16 +4,16 @@ Use this playbook only after the Rohrpost skill reports that
 `scripts/rohrpost` is missing or its installation is incomplete.
 
 On Windows — PowerShell, cmd, or Git Bash — follow
-[`playbooks/windows.md`](windows.md) instead of the steps below: it installs
-uv, materialises the `.ps1`, `.cmd`, and Git Bash wrappers, and validates them
-with the Windows equivalents of the checks here.
+[`playbooks/windows.md`](windows.md) instead of the steps below: it places
+`rp.exe`, materialises the `.ps1`, `.cmd`, and Git Bash wrappers, and
+validates them with the Windows equivalents of the checks here.
 
 ## Permission
 
-Ask the user whether to install Rohrpost locally. Explain that this will clone
-the Rohrpost repository, obtain Python 3.14 through `uv`, create an isolated
-environment, install dependencies, and create the local `scripts/rohrpost`
-wrapper. Stop if the user declines.
+Ask the user whether to install Rohrpost locally. Explain that this will
+download (or build) the single `rp` binary into an install home and create the
+local `scripts/rohrpost` wrapper. Nothing else is installed: `rp` is a static
+executable with no runtime dependencies. Stop if the user declines.
 
 ## Location
 
@@ -25,38 +25,37 @@ export ROHRPOST_HOME="${XDG_CACHE_HOME:-$HOME/.cache}/rohrpost"
 
 Keep this variable set for the current shell. The generated wrapper also embeds
 the resolved path, so later calls remain usable when the environment variable
-is not restored.
+is not restored. The binary lives at `$ROHRPOST_HOME/bin/rp`.
 
 ## Provision
 
-The canonical source is `https://github.com/code-factorio/rohrpost.git`.
-Require `git`, `curl`, and `uv`. If `uv` is unavailable, install it using the
-official method appropriate for the current Bash environment, then refresh the
-shell so `uv` is on `PATH`. Do not use a system Python as a substitute for the
-project Python.
-
-Clone the source if it is not already present:
+Preferred: a prebuilt release. Releases are published at
+`https://github.com/code-factorio/rohrpost/releases`, one archive per target
+(`rp-<tag>-<target>.tar.gz`). Pick the target for the machine:
+`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`,
+`aarch64-apple-darwin` or `x86_64-apple-darwin`. Require `curl` and `tar`.
 
 ```bash
-mkdir -p "$ROHRPOST_HOME"
-git clone https://github.com/code-factorio/rohrpost.git "$ROHRPOST_HOME/src"
+mkdir -p "$ROHRPOST_HOME/bin"
+tag="$(curl -fsSL https://api.github.com/repos/code-factorio/rohrpost/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"
+curl -fsSL "https://github.com/code-factorio/rohrpost/releases/download/$tag/rp-$tag-<target>.tar.gz" \
+  | tar -xz -C "$ROHRPOST_HOME/bin" --strip-components=1 "rp-$tag-<target>/rp"
+chmod +x "$ROHRPOST_HOME/bin/rp"
 ```
 
-Resolve `main` to a concrete commit and keep that hash for this installation:
+Record the tag that was installed. Verify the checksum against the release's
+`SHA256SUMS` when the environment allows it.
+
+Fallback when no release matches the machine or the network blocks GitHub
+release downloads but a Rust toolchain (1.89+) is available:
 
 ```bash
-cd "$ROHRPOST_HOME/src"
-git fetch origin main
-rohrpost_revision="$(git rev-parse origin/main)"
-git checkout --detach "$rohrpost_revision"
-uv python install 3.14
-uv sync
+cargo install --git https://github.com/code-factorio/rohrpost --locked --root "$ROHRPOST_HOME"
 ```
 
-If Git is unavailable but network access is available, download the `main`
-tarball with `curl`, unpack it into `$ROHRPOST_HOME/src`, and record the archive
-URL plus the resolved commit from its contents when available. If neither Git
-nor the tarball route is available, stop and report the missing prerequisite.
+`cargo install --root` places the binary at `$ROHRPOST_HOME/bin/rp`. If neither
+route is available, stop and report the missing prerequisite. Do not substitute
+a different checkout or a system-wide `rp`.
 
 ## Materialize the wrapper
 
@@ -78,6 +77,6 @@ Finally, verify the installation from the caller's repository:
 scripts/rohrpost doctor --json
 ```
 
-If any prerequisite, checkout, environment, executable, or validation step
-fails, stop and report the exact failure. The wrapper is intentionally a
-validator and launcher; it never repairs an installation itself.
+If any prerequisite, download, build, executable, or validation step fails,
+stop and report the exact failure. The wrapper is intentionally a validator and
+launcher; it never repairs an installation itself.
