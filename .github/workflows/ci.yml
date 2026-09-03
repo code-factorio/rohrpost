@@ -166,7 +166,7 @@ jobs:
         shell: bash
         env:
           RP_NATIVE: ${{ runner.os == 'Windows' && format('{0}/native/rp.exe', github.workspace) || format('{0}/native/rp', github.workspace) }}
-        run: uv run pytest -q tests/conformance/${{ matrix.module }}.py
+        run: uv run pytest -q -m conformance tests/conformance/${{ matrix.module }}.py
 
   # A single required check for branch protection: green when every leg is.
   native-gate:

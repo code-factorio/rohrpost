@@ -4,9 +4,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
+import pytest
+
 from conformance.conftest import Impl, Normalizer, Pair, gh_state, write_gh_state
+
+# The fake gh is a script. Both implementations launch `gh` with CreateProcess
+# on Windows, which only starts executables, so neither can reach it there;
+# the sync round is platform-independent and is covered on Linux and macOS.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="the fake gh CLI is a script that CreateProcess cannot launch"
+)
 
 CONFIG = """[project]
 prefix = "TST"
