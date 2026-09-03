@@ -10,27 +10,21 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   lint:
-    name: Lint & types
+    name: Format & clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          python-version: "3.14"
-      - run: uv sync
-      - run: uv run ruff format --check
-      - run: uv run ruff check
-      - run: uv run ty check src tests
-      - run: uv run mypy
-      - run: uv run pyright
-      - run: uv run bandit -c pyproject.toml -r src
-      - run: uv run pyscn check src
+      - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
 
   test:
-    name: Tests & coverage (${{ matrix.os }})
+    name: Tests (${{ matrix.os }})
     strategy:
       # All three legs report independently: one platform's failure must not
       # cancel the others before their own verdicts are on the record.
@@ -40,44 +34,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          python-version: "3.14"
-      - run: uv sync
-      - run: uv run pytest --cov=rohrpost --cov-report=term-missing --cov-report=xml
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-${{ matrix.os }}-${{ github.run_id }}
-          path: coverage.xml
-          if-no-files-found: ignore
+      - run: rustup toolchain install stable --profile minimal
+      - run: git config --global user.email ci@rohrpost.local && git config --global user.name ci
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      # The built binary must drive this very repository's tracker.
+      - run: ./target/release/rp doctor --json
+        shell: bash
 
-  complexity:
-    name: Complexity & maintainability
+  msrv:
+    name: Minimum supported Rust (1.89)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          python-version: "3.14"
-      - run: uv sync
-      - run: uv run radon cc -a -s src
-      - run: uv run radon mi -s src
-      - run: uv run xenon --max-absolute B --max-modules A --max-average A src
-
-  mutation:
-    name: Mutation testing
-    runs-on: ubuntu-latest
-    # Mutation testing is slow and occasionally flaky on a growing codebase:
-    # wire it in, but never let it block merge decisions.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          python-version: "3.14"
-      - run: uv sync
-      - run: uv run mutmut run
+      - run: rustup toolchain install 1.89 --profile minimal
+      - run: cargo +1.89 build --locked
