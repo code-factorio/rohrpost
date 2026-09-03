@@ -10,12 +10,13 @@ Use the working-tree build, never a published release — dogfooding means the t
 written by the code under development:
 
 ```bash
-uv run rp <command>
+cargo run -q -- <command>
 ```
 
-`rp` walks up from the current directory to find `.rohrpost/`, so it works from anywhere in
-the repo. Every command accepts `--json`; **always pass `--json`** — it is the agent-facing
-interface, and the plain output is for human terminals.
+(`make release` builds `target/release/rp` if you prefer a fixed path.) `rp` walks up from
+the current directory to find `.rohrpost/`, so it works from anywhere in the repo. Every
+command accepts `--json`; **always pass `--json`** — it is the agent-facing interface, and
+the plain output is for human terminals.
 
 Ticket ids are bare (`a1b2c3`) or rendered with this repo's display prefix (`RP-a1b2c3`);
 `rp` accepts either. Prefer the bare id in scripts. Exit codes: `0` success, `1` domain
@@ -35,7 +36,7 @@ failure (no such ticket, bad status), `2` usage error.
   key, never an identity.
 - **Find work**: `rp ready --json` — open, unblocked, non-epic tickets, highest priority
   first. This is the queue an agent picks from.
-- **Comment**: `rp comment <id> "<note>"`. Notes are local and never synced.
+- **Comment**: `rp comment <id> "<note>"`. Notes are local to the repo.
 - **Apply / remove labels**: `rp set <id> labels+=a,b` / `rp set <id> labels-=a`. Set fields
   use `+=` / `-=` so two concurrent runners compose instead of clobbering.
 - **Update any scalar field**: `rp set <id> status=review priority=1` (`title`, `type`,
@@ -72,43 +73,34 @@ one every shell passes identically: `$(cat ...)` breaks in PowerShell, and
 cmd has no here-string — write the body to a file and pass the path.
 
 ```bash
-uv run rp new "Fix token refresh race" --type bug -p 1 --label needs-triage --json --body-file body.md
+cargo run -q -- new "Fix token refresh race" --type bug -p 1 --label needs-triage --json --body-file body.md
 ```
 
 For stdin, Git Bash pipes a heredoc and PowerShell pipes a here-string:
 
 ```bash
-uv run rp new "Fix token refresh race" --type bug -p 1 --json --body-file - <<'EOF'
+cargo run -q -- new "Fix token refresh race" --type bug -p 1 --json --body-file - <<'EOF_BODY'
 ## Context
 ...
-EOF
+EOF_BODY
 ```
 
 ```powershell
 @'
 ## Context
 ...
-'@ | uv run rp new "Fix token refresh race" --type bug -p 1 --json --body-file -
+'@ | cargo run -q -- new "Fix token refresh race" --type bug -p 1 --json --body-file -
 ```
 
 ## When a skill says "fetch the relevant ticket"
 
-Run `uv run rp show <id> --include body,deps,notes --json`.
+Run `cargo run -q -- show <id> --include body,deps,notes --json`.
 
-## Mirroring to GitHub
+## No remote mirror
 
-`.rohrpost/config.toml` has a `[remotes.github]` entry for `code-factorio/rohrpost`. A
-ticket only reaches GitHub once it is explicitly linked and synced:
-
-```bash
-uv run rp link <id> github <issue-number>
-uv run rp sync --dry-run      # print the plan, touch nothing
-uv run rp sync
-```
-
-**Do not link or sync as part of ordinary skill work.** Rohrpost is the source of truth
-here; mirroring is a deliberate maintainer action. If `rp conflicts` reports anything, that
-is a human's call (`rp resolve <id> --take local|remote`).
+Rohrpost is the source of truth and the only tracker. The former GitHub sync was removed
+(ADR 0001); do not look for `link`, `sync` or `conflicts` commands. Anything that must
+reach GitHub goes through `gh` directly and is recorded here as a ticket or a comment.
 
 ## Pull requests as a request surface
 
@@ -179,10 +171,6 @@ identity:
 To load a whole map, resolve the handle to an id, then follow the native parent edges rather
 than enumerating children by title — `rp tree <map-id> --json` still finds a child whose
 handle was renumbered or never applied.
-
-Titles are mutable and sync bidirectionally under per-field LWW (§8.2), so a remote edit can
-drop a handle. That is acceptable because syncing is a deliberate maintainer action, never
-ordinary skill work — but do not treat a handle as a durable external reference.
 
 The decision and its rejected alternatives are in `[addr-5] Should rp resolve a ticket by
 title?`. Allocating handles and repairing a clash are the charting skill's business, not

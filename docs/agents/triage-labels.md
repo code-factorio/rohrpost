@@ -20,8 +20,8 @@ corresponding label string from this table.
 Rohrpost labels are free-form strings — nothing needs creating up front.
 
 ```bash
-uv run rp set <id> labels+=ready-for-agent labels-=needs-triage --json
-uv run rp list --label needs-triage --json          # the triage queue
+cargo run -q -- set <id> labels+=ready-for-agent labels-=needs-triage --json
+cargo run -q -- list --label needs-triage --json          # the triage queue
 ```
 
 A `wontfix` verdict is also a status change: label it, then `rp drop <id> --reason
