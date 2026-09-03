@@ -1,24 +1,24 @@
 #include "rohrpost/io.hpp"
 
 #include <cerrno>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <expected>
+#include <filesystem>
 #include <optional>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <system_error>
 
 #if defined(_WIN32)
+#include <windows.h>
 #include <fcntl.h>
 #include <io.h>
-#include <windows.h>
 #else
-#include <cstddef>
-#include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <string>
-#include <string_view>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif

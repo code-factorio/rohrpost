@@ -1,18 +1,20 @@
 #include "rohrpost/entropy.hpp"
 
+#include <cstddef>
+#include <cstdint>
+#include <span>
 #include <stdexcept>
 
 #if defined(_WIN32)
-#include <bcrypt.h>
+// windows.h must precede bcrypt.h, and bcrypt.h uses NTSTATUS from winternl.h.
 #include <windows.h>
+#include <winternl.h>
+#include <bcrypt.h>
 #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
 #include <cstdlib>
 #else
 #include <cerrno>
-#include <cstddef>
-#include <cstdint>
 #include <fcntl.h>
-#include <span>
 #include <sys/random.h>
 #include <unistd.h>
 #endif

@@ -2,27 +2,27 @@
 
 #include "rohrpost/io.hpp"
 
-#include <filesystem>
-
-#if defined(_WIN32)
-#include <thread>
-#include <windows.h>
-#else
-#include <cerrno>
 #include <chrono>
-#include <csignal>
 #include <cstddef>
 #include <expected>
-#include <fcntl.h>
+#include <filesystem>
 #include <iterator>
 #include <optional>
+#include <string>
+#include <system_error>
+#include <vector>
+
+#if defined(_WIN32)
+#include <windows.h>
+#include <thread>
+#else
+#include <cerrno>
+#include <csignal>
+#include <fcntl.h>
 #include <poll.h>
 #include <spawn.h>
-#include <string>
 #include <sys/wait.h>
-#include <system_error>
 #include <unistd.h>
-#include <vector>
 extern char** environ;
 #endif
 

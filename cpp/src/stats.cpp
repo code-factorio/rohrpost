@@ -7,13 +7,13 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <string>
 #include <vector>
 
 #if !defined(_WIN32)
-#include <cstddef>
-#include <filesystem>
-#include <string>
 #include <unistd.h>
 #endif
 

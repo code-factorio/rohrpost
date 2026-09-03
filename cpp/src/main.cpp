@@ -2,15 +2,15 @@
 #include "rohrpost/cli.hpp"
 #include "rohrpost/io.hpp"
 
+#include <cstddef>
 #include <exception>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
-#include <cstddef>
-#include <shellapi.h>
-#include <utility>
 #include <windows.h>
+#include <shellapi.h>  // CommandLineToArgvW; needs windows.h first
 #endif
 
 namespace {

@@ -5,12 +5,12 @@
 #include "rohrpost/subprocess.hpp"
 
 #include <chrono>
-
-#if !defined(_WIN32)
 #include <optional>
-#include <pwd.h>
 #include <string>
 #include <string_view>
+
+#if !defined(_WIN32)
+#include <pwd.h>
 #include <unistd.h>
 #endif
 
