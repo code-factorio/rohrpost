@@ -6,6 +6,9 @@ incomplete. It is the Windows branch of `install-local.md`: ask the user for
 permission before installing anything and stop if the user declines. The
 wrappers are validators and launchers; they never repair an installation.
 
+`rp.exe` is a single static executable: no Python, no `uv`, no virtual
+environment, nothing to activate.
+
 ## Location
 
 Use `ROHRPOST_HOME` when it is already set. Otherwise set nothing: the `.ps1`
@@ -13,50 +16,33 @@ and `.cmd` wrappers default the install home to `%LOCALAPPDATA%\rohrpost` at
 runtime. If you choose a custom location, keep `ROHRPOST_HOME` set for the
 current shell. The Git Bash wrapper embeds the resolved path when it is
 materialised, so later calls stay usable when the variable is not restored.
+The binary lives at `<home>\bin\rp.exe`.
 
 ## Provision
 
-The canonical source is `https://github.com/code-factorio/rohrpost.git`.
-Require `git` and `uv`. Do not use a system Python as a substitute for the
-project Python — a bare `python` on Windows is often a Microsoft Store alias
-that opens the store instead of an interpreter.
-
-Install uv with the official installer (PowerShell):
-
-```powershell
-powershell -NoProfile -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-uv installs to `%USERPROFILE%\.local\bin`; open a new shell, or add it to the
-current one:
-
-```powershell
-$env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
-```
-
-Clone the source if it is not already present. Keep the path short and outside
-OneDrive-synced folders: deep `.venv` trees can hit the 260-character MAX_PATH
-limit, and OneDrive breaks uv's hardlink-based installs.
+Preferred: the prebuilt release for `x86_64-pc-windows-msvc`, published at
+`https://github.com/code-factorio/rohrpost/releases` as
+`rp-<tag>-x86_64-pc-windows-msvc.zip`.
 
 ```powershell
 $rohrpostHome = if ($env:ROHRPOST_HOME) { $env:ROHRPOST_HOME } else { Join-Path $env:LOCALAPPDATA 'rohrpost' }
-New-Item -ItemType Directory -Force -Path $rohrpostHome | Out-Null
-git clone https://github.com/code-factorio/rohrpost.git (Join-Path $rohrpostHome 'src')
+New-Item -ItemType Directory -Force -Path (Join-Path $rohrpostHome 'bin') | Out-Null
+$tag = (Invoke-RestMethod https://api.github.com/repos/code-factorio/rohrpost/releases/latest).tag_name
+$zip = Join-Path $env:TEMP "rp-$tag.zip"
+Invoke-WebRequest "https://github.com/code-factorio/rohrpost/releases/download/$tag/rp-$tag-x86_64-pc-windows-msvc.zip" -OutFile $zip
+Expand-Archive $zip -DestinationPath $env:TEMP -Force
+Copy-Item (Join-Path $env:TEMP "rp-$tag-x86_64-pc-windows-msvc\rp.exe") (Join-Path $rohrpostHome 'bin\rp.exe') -Force
 ```
 
-Resolve `main` to a concrete commit and keep that hash for this installation:
+Record the tag that was installed. Fallback when a Rust toolchain (1.89+) is
+available and the release cannot be downloaded:
 
 ```powershell
-Set-Location (Join-Path $rohrpostHome 'src')
-git fetch origin main
-$rohrpostRevision = git rev-parse origin/main
-git checkout --detach $rohrpostRevision
-uv python install 3.14
-uv sync
+cargo install --git https://github.com/code-factorio/rohrpost --locked --root $rohrpostHome
 ```
 
-After `uv sync` the console script is `.venv\Scripts\rp.exe` inside the
-checkout; the venv needs no activation.
+`cargo install --root` places the binary at `<home>\bin\rp.exe`. If neither
+route is available, stop and report the missing prerequisite.
 
 ## Materialise the wrappers
 
@@ -111,8 +97,8 @@ scripts\rohrpost.cmd doctor --json
 scripts/rohrpost doctor --json
 ```
 
-If any prerequisite, checkout, environment, executable, or validation step
-fails, stop and report the exact failure.
+If any prerequisite, download, build, executable, or validation step fails,
+stop and report the exact failure.
 
 ## If PowerShell blocks the wrapper
 
