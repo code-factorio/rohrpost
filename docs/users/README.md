@@ -12,15 +12,24 @@ automation; the default human-readable output is for terminals.
 
 ## Install
 
+`rp` is a single native binary with no runtime dependencies. Download the build
+for your platform from the
+[releases page](https://github.com/code-factorio/rohrpost/releases) — Linux
+(x86_64, aarch64), macOS (universal), Windows (x86_64, arm64) — verify it
+against the published `SHA256SUMS`, rename it to `rp` (`rp.exe` on Windows)
+and put it on `PATH`. To build from source you need a C++23 compiler, CMake
+and Ninja:
+
 ```bash
-uvx rohrpost <command>      # runs with no prerequisite toolchain
+cmake --preset linux && cmake --build --preset linux    # or macos / windows
 ```
 
-or, inside the repo:
+The Python reference implementation is still available and produces the same
+bytes, so either form can drive the same repository:
 
 ```bash
-uv sync
-uv run rp <command>
+uvx rohrpost <command>      # the Python reference, no prerequisite toolchain
+uv sync && uv run rp <command>
 ```
 
 `rp` discovers the nearest `.rohrpost/` by walking up from the current directory,

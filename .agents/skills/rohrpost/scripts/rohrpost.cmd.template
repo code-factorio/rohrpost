@@ -1,7 +1,8 @@
 @echo off
 rem Rohrpost launcher for cmd, materialised from rohrpost.cmd.template.
 rem The wrapper validates the local installation and never bypasses it: it only
-rem ever runs the rp executable from the install's own .venv.
+rem ever runs a native rp placed under the install home, or the rp executable
+rem from the install's own .venv.
 rem
 rem No placeholder to substitute: the default home resolves %LOCALAPPDATA%\rohrpost
 rem at runtime and ROHRPOST_HOME overrides it.
@@ -15,6 +16,13 @@ if not defined ROHRPOST_HOME if not defined LOCALAPPDATA (
 )
 
 if defined ROHRPOST_HOME (set "ROHRPOST_HOME_DIR=%ROHRPOST_HOME%") else (set "ROHRPOST_HOME_DIR=%LOCALAPPDATA%\rohrpost")
+
+rem A native rp (a release binary or a local cmake build) under <home>\bin needs
+rem no source checkout and no Python: prefer it.
+if exist "%ROHRPOST_HOME_DIR%\bin\rp.exe" (
+    "%ROHRPOST_HOME_DIR%\bin\rp.exe" %*
+    exit /b %ERRORLEVEL%
+)
 
 if not exist "%ROHRPOST_HOME_DIR%\src\" (
     echo Rohrpost is not installed: source checkout is missing at %ROHRPOST_HOME_DIR%\src 1>&2

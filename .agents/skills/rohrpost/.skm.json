@@ -3,10 +3,10 @@
   "source": "rohrpost",
   "collectionCommit": "c25ad34f831a11fdd729cab93352eb1224c4f011",
   "files": {
-    "SKILL.md": "sha256:07514e299a90669f7b608032be1d28c54e3faaa86573e7d9a404bea970760aeb",
-    "playbooks/install-local.md": "sha256:a182d41a1406b8a471dcc489464d8beeb972c7946c5b8b613316175598e1a5d6",
-    "scripts/rohrpost": "sha256:7934ffb635135f87151ffbcc03777dcd89273d7ec15be44af0dc30b931c15b05",
-    "scripts/rohrpost.template": "sha256:92fc5fb709db4734b6e514eac4dd45d04c1370b096bfcd3f473629383f517f21",
-    "scripts/test-rohrpost-wrapper.sh": "sha256:bd43d460f8669bad0d69cc3341d6dad09dc95d65fac4fa588d58d08546b357d4"
+    "SKILL.md": "sha256:7d11842f6fba22dab2aebb11a91e5d6bca0700d69d6713ea148e151bf7ba4d9e",
+    "playbooks/install-local.md": "sha256:5e8813bf6d9527d4315f7746a570e1df50f1ed1f4bf71c0207ecbbe0af9700bb",
+    "scripts/rohrpost": "sha256:533a0351d9ae19e57ab0b9295f704e4cc28f7b5031852618316159730e68809b",
+    "scripts/rohrpost.template": "sha256:b758aa523359d2544eb0f526f5e609fb98f0e310a2e34966220a89c1aed1ee18",
+    "scripts/test-rohrpost-wrapper.sh": "sha256:e6282e82c412784345ef1fdac1389d5361261586f8bba90e86b2c5d0467faffb"
   }
 }

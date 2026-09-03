@@ -5,6 +5,14 @@ default_rohrpost_home="__ROHRPOST_HOME__"
 rohrpost_home="${ROHRPOST_HOME:-$default_rohrpost_home}"
 rohrpost_source="$rohrpost_home/src"
 
+# A native rp (a release binary or a local cmake build placed under
+# $ROHRPOST_HOME/bin) needs no source checkout and no Python: prefer it.
+for candidate in "$rohrpost_home/bin/rp" "$rohrpost_home/bin/rp.exe"; do
+    if [[ -x "$candidate" ]]; then
+        exec "$candidate" "$@"
+    fi
+done
+
 if [[ ! -d "$rohrpost_source" ]]; then
     printf 'Rohrpost is not installed: source checkout is missing at %s\n' "$rohrpost_source" >&2
     printf 'Load .agents/skills/rohrpost/playbooks/install-local.md to provision it.\n' >&2

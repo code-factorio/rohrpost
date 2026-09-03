@@ -35,4 +35,19 @@ for layout in bin/rp Scripts/rp Scripts/rp.exe; do
     check_layout "$layout"
 done
 
+# A native rp under <home>/bin wins over any source checkout and needs none.
+check_native() {
+    rm -rf "$temp_root/src" "$temp_root/bin"
+    mkdir -p "$temp_root/bin" "$temp_root/caller"
+    printf '%s\n' '#!/usr/bin/env bash' 'printf "native cwd=%s args=%s\\n" "$PWD" "$*"' \
+        > "$temp_root/bin/rp"
+    chmod +x "$temp_root/bin/rp"
+    sed "s|__ROHRPOST_HOME__|$temp_root|" "$template" > "$temp_root/rohrpost"
+    chmod +x "$temp_root/rohrpost"
+    local output
+    output="$(cd "$temp_root/caller" && "$temp_root/rohrpost" doctor --json)"
+    test "$output" = "native cwd=$temp_root/caller args=doctor --json"
+}
+check_native
+
 printf 'rohrpost wrapper checks passed\n'

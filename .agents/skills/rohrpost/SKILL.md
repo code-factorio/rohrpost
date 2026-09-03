@@ -31,7 +31,10 @@ Git Bash:    <rohrpost-skill>/scripts/rohrpost ready --json --limit 5
 
 The `.ps1` and `.cmd` wrappers default the install home to
 `%LOCALAPPDATA%\rohrpost` and honour `ROHRPOST_HOME`; the Git Bash wrapper
-keeps the POSIX default and also resolves `.venv\Scripts\rp(.exe)`.
+keeps the POSIX default and also resolves `.venv\Scripts\rp(.exe)`. Every
+wrapper first looks for a native `rp` under `<home>/bin` (a release binary or
+a local build) and only then for the Python checkout's `.venv`; both produce
+identical output.
 
 The wrapper preserves the caller's working directory and validates the local
 installation before invoking Rohrpost. If the wrapper is missing or reports

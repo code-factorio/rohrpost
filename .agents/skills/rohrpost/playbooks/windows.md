@@ -14,7 +14,31 @@ runtime. If you choose a custom location, keep `ROHRPOST_HOME` set for the
 current shell. The Git Bash wrapper embeds the resolved path when it is
 materialised, so later calls stay usable when the variable is not restored.
 
-## Provision
+## Provision: native binary (preferred)
+
+Releases at `https://github.com/code-factorio/rohrpost/releases` carry
+`rp-windows-x86_64.exe` and `rp-windows-arm64.exe` plus a `SHA256SUMS`
+manifest. No Python, no `uv`, no source checkout is needed:
+
+```powershell
+$rohrpostHome = if ($env:ROHRPOST_HOME) { $env:ROHRPOST_HOME } else { Join-Path $env:LOCALAPPDATA 'rohrpost' }
+$bin = Join-Path $rohrpostHome 'bin'
+New-Item -ItemType Directory -Force -Path $bin | Out-Null
+$arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x86_64' }
+$asset = "rp-windows-$arch.exe"
+$base = 'https://github.com/code-factorio/rohrpost/releases/latest/download'
+Invoke-WebRequest "$base/$asset" -OutFile (Join-Path $bin 'rp.exe')
+Invoke-WebRequest "$base/SHA256SUMS" -OutFile (Join-Path $bin 'SHA256SUMS')
+$expected = (Select-String -Path (Join-Path $bin 'SHA256SUMS') -Pattern " $asset$").Line.Split(' ')[0]
+$actual = (Get-FileHash (Join-Path $bin 'rp.exe') -Algorithm SHA256).Hash.ToLower()
+if ($expected -ne $actual) { throw "checksum mismatch for $asset" }
+& (Join-Path $bin 'rp.exe') --version
+```
+
+Every wrapper runs `<home>\bin\rp.exe` before it looks for a source
+checkout, so continue at "Materialise the wrappers".
+
+## Provision: Python reference
 
 The canonical source is `https://github.com/code-factorio/rohrpost.git`.
 Require `git` and `uv`. Do not use a system Python as a substitute for the
