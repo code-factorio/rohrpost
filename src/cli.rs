@@ -354,12 +354,14 @@ fn parse_args(args: &[String]) -> Result<Action> {
                 None => (long.to_string(), None),
             }
         } else {
-            let short = &token[1..2];
-            let rest = &token[2..];
+            // Split on character boundaries: `-é` must be a usage error, not a panic.
+            let mut chars = token[1..].chars();
+            let short = chars.next().map(String::from).unwrap_or_default();
+            let rest = chars.as_str();
             let opt = spec
                 .options
                 .iter()
-                .find(|o| o.short == Some(short))
+                .find(|o| o.short == Some(short.as_str()))
                 .ok_or_else(|| usage(&format!("{}: unrecognized option '{token}'", spec.name)))?;
             (
                 opt.long.to_string(),
@@ -1177,6 +1179,8 @@ mod tests {
     fn usage_errors_are_exit_two() {
         for args in [
             &["bogus"][..],
+            &["new", "t", "-é"],
+            &["new", "t", "-"],
             &["show"],
             &["show", "a", "b"],
             &["new", "t", "--nope"],
