@@ -1,20 +1,27 @@
 # Rohrpost — Specification
 
-**Status:** Draft v0.1 · **Date:** 2026-08-11 · **Author:** Vinzenz Feenstra
+**Status:** Draft v0.2 · **Date:** 2026-09-03 (v0.1: 2026-08-11) · **Author:** Vinzenz Feenstra
 
-A git-native ticket system for agentic coding workflows. Local files are canonical;
-GitHub, Jira, GitLab and Linear are projections that get synced.
+A git-native ticket system for agentic coding workflows. Local files are canonical and
+the repository is the only tracker.
+
+> **v0.2 (2026-09-03).** The implementation is a standard-library-only Rust binary; the
+> sync layer of v0.1 (§8, the `link`/`unlink`/`synced` ops, the `remotes` field, shadow
+> snapshots and providers) and the `tickets.jsonl` snapshot cache were removed. See
+> `docs/adr/0001-rust-std-only-rewrite.md`. Sections below are edited in place; the
+> removed material is summarised where it used to stand.
 
 ---
 
 ## 1. What it is
 
 Rohrpost keeps work items as files in the repository they belong to. Coding agents
-create, claim, update and close them without leaving the repo. A sync layer mirrors
-them bidirectionally into whatever SaaS tracker the humans and stakeholders use.
+create, claim, update and close them without leaving the repo. There is no server, no
+daemon and no remote tracker: the repository is the source of truth and the whole
+system.
 
-The differentiator is not the storage format — it is being the abstraction *over*
-four issue trackers, with the repo as the source of truth.
+The differentiator is not the storage format — it is a validated single write path over
+an append-only log that merges through git without coordination.
 
 **Design assumption:** ~95% of all reads and writes come from agents, not humans.
 Every trade-off below resolves in favour of machine ergonomics.
@@ -39,8 +46,6 @@ vocabulary. This is the Flask/Jinja/Werkzeug pattern — whimsical name, boring 
 | Grouping / decomposition | `plan` |
 | Reusable ticket skeleton | `template` |
 | Set dispatched together | `batch` |
-| A linked SaaS tracker | `remote` |
-| Cross-reference to a remote | `remote ref` |
 | The agent doing work | `runner` |
 | Its git worktree | `workspace` |
 
@@ -75,8 +80,8 @@ Rohrpost is one component of a larger system and knows about none of the others.
 ```
 
 **The dependency runs one way.** Everything above drives Rohrpost through `rp --json`;
-Rohrpost never calls out, never listens, never runs as a daemon. This is what keeps
-`uvx rohrpost` useful standalone in any repository — the original requirement, and
+Rohrpost never calls out, never listens, never runs as a daemon. This is what keeps a
+single `rp` binary useful standalone in any repository — the original requirement, and
 worth more than any feature it excludes.
 
 Reading through the CLI is not coupling: a planner calling `rp show --json` for a body
@@ -90,17 +95,13 @@ components, keyed by ticket id.
 
 ```
 .rohrpost/
-├── config.toml              # committed — remotes, field mappings, policy
+├── config.toml              # committed — display prefix, compaction branch
 ├── log.jsonl                # committed — append-only event log. TRUTH.
 ├── archive/
 │   └── log-2026-Q2.jsonl    # committed — compacted historical events
-├── shadow/
-│   └── jira/PROJ-123.json   # committed — last-synced remote state (merge base)
 ├── templates/
 │   └── bug.toml             # committed — hand-authored
-├── bodies/                  # committed — phase 2, optional
-│   └── RP-a1b2.md
-└── tickets.jsonl            # GITIGNORED — folded snapshot, regenerable
+└── .lock                    # the advisory lock file (empty)
 ```
 
 `.gitattributes`:
@@ -108,19 +109,19 @@ components, keyed by ticket id.
 ```gitattributes
 .rohrpost/log.jsonl          merge=union text eol=lf
 .rohrpost/archive/*.jsonl    merge=union text eol=lf
-.rohrpost/shadow/**/*.json   merge=ours
-.rohrpost/tickets.jsonl      linguist-generated
 ```
 
 `merge=union` keeps both sides' appended lines instead of writing conflict markers.
 It is safe here **only because the log is strictly append-only** and every event
-carries a unique id, so duplicates are removed on read. Shadow files use `merge=ours`
-because a stale merge base is harmless — the next sync overwrites it — while a
-conflicted one blocks the sync entirely. `text eol=lf` on the JSONL event store
-normalises every checkin to an LF blob and checks the file out with the blob's exact
-bytes on any platform, regardless of `core.autocrlf`: a Windows clone and a Linux
-clone hold byte-identical working trees, and the union driver always compares LF
-lines.
+carries a unique id, so duplicates are removed on read. `text eol=lf` on the JSONL
+event store normalises every checkin to an LF blob and checks the file out with the
+blob's exact bytes on any platform, regardless of `core.autocrlf`: a Windows clone and
+a Linux clone hold byte-identical working trees, and the union driver always compares
+LF lines.
+
+Every file under `.rohrpost/` is committed. There is no regenerable cache: the fold is
+cheap enough to run on every invocation (§11), so nothing sits between "committed and
+must survive a merge" and "deletable".
 
 ---
 
@@ -147,7 +148,7 @@ edit, not a migration through the event history. `rp` accepts either form as inp
 
 The collision domain is one repository, so ~1 billion values is comfortable. For a
 cross-repo index the key is the pair `(prefix, id)` — which is why a hardcoded `RP-`
-would have been a defect: three repos syncing into one Jira project would produce
+would have been a defect: three repos referenced from one external index would produce
 indistinguishable references.
 
 Sequential numbers are rejected deliberately: parallel runners on separate branches
@@ -168,15 +169,14 @@ One JSON object per line. Append-only. Never rewritten except by `rp compact`.
   "ts":     "2026-08-11T09:20:14.221Z",     // RFC 3339, UTC, ms precision
   "ticket": "a1b2c3",                       // bare id — the display prefix never enters the log (§5.1)
   "op":     "set",                          // see below
-  "actor":  "runner/claude-code@b-3",       // or "user/<git email>", "remote/jira"
+  "actor":  "runner/claude-code@b-3",       // or "user/<git email>"
   "set":    { "status": "in_progress" }     // op-dependent payload
 }
 ```
 
-`actor` is load-bearing: it distinguishes a human decision from a runner write from a
-change that arrived through sync. Three namespaces — `user/*` resolved from
-`git config user.email`, `runner/<agent>@<batch>`, and `remote/<name>` for anything
-sync appends. Never hardcode a name.
+`actor` is load-bearing: it distinguishes a human decision from a runner write. Two
+namespaces — `user/*` resolved from `git config user.email`, and
+`runner/<agent>@<batch>`. Never hardcode a name.
 
 **Operations:**
 
@@ -186,12 +186,15 @@ sync appends. Never hardcode a name.
 | `set` | `set: {field: value}` | Field-level update. The workhorse |
 | `set` | `set: {"labels+": [...]}` / `{"labels-": [...]}` | Set add/remove — see below |
 | `comment` | `text: str` | Append-only discussion entry |
-| `link` | `remote: str, ref: str` | Bind ticket to a remote tracker item |
-| `unlink` | `remote: str` | Remove that binding |
-| `synced` | `remote: str, at: str` | Records a completed sync round |
 
 There is no `close` or `claim` op — both are `set` on `status`. Fewer ops means a
 simpler fold and fewer schema decisions to regret.
+
+Three further ops — `link`, `unlink` and `synced` — were written by the v0.1 sync layer.
+They still **decode** (a log is forever) and count as activity on their ticket for
+`updated`, but they apply no state and `rp` never writes them. `rp doctor` reports how
+many such legacy events a log carries. Keys the reader does not know are preserved
+verbatim, so `rp log` and `rp compact` round-trip any log byte-for-byte.
 
 **Close reasons ride on the event, not the ticket:**
 
@@ -209,7 +212,7 @@ whole-array writes and one silently loses. `labels+` and `labels-` fold as set u
 and difference, so concurrent labelling composes. Applies to `labels` and any future
 array field.
 
-### 5.3 Ticket (folded shape, `tickets.jsonl`)
+### 5.3 Ticket (folded shape)
 
 ```jsonc
 {
@@ -223,7 +226,6 @@ array field.
   "labels":     ["auth"],
   "assignee":   "runner/claude-code",
   "body":       "…",             // or {"path": "bodies/RP-a1b2c3.md"} in phase 2
-  "remotes":    { "jira": "PROJ-123", "github": "88" },
   "last_close_reason": null,     // derived from the most recent close event
   "created":    "2026-08-11T09:14:02Z",
   "updated":    "2026-08-11T11:02:38Z",
@@ -232,8 +234,7 @@ array field.
 ```
 
 `_fieldts` carries the last-write timestamp per field. It is what makes field-level
-merge and incremental sync possible, and it is why the fold is not simply
-"last event wins".
+merge possible, and it is why the fold is not simply "last event wins".
 
 ### 5.4 Status
 
@@ -255,9 +256,8 @@ exactly the kind of write amplification that produces merge conflicts.
 
 ### 5.5 Epics, plans, templates, batches
 
-**An epic is a ticket** with `type: epic`. Children point at it via `parent`. Epics
-mirror to Jira Epics and Linear Projects, so making them a separate entity would mean
-implementing sync twice — the expensive half of the system — for no gain.
+**An epic is a ticket** with `type: epic`. Children point at it via `parent`. One
+entity, one fold, one write path.
 
 Three constraints, cheap now and expensive later:
 
@@ -265,8 +265,7 @@ Three constraints, cheap now and expensive later:
   and unbounded trees bring cycle detection and recursive rollups for little benefit.
 - **Epic status is derived, not stored.** An epic is `done` when its children are.
   Storing it means closing a child cascades a write into the parent — the write
-  amplification pattern from 5.4. Sync pushes the derived value outward; inbound epic
-  status changes are advisory and do not overwrite the computation.
+  amplification pattern from 5.4.
 - **`parent` is the only structural field.** No `children[]`, and no `blocks[]` beside
   `blocked_by`. Both are denormalization: every edge edit would write to two tickets,
   and two branches adding dependencies would conflict on a ticket neither is working
@@ -274,7 +273,7 @@ Three constraints, cheap now and expensive later:
 
 **A plan is not a Rohrpost object at all.** Epics are durable structure; plans are the
 transient reasoning that produced them — an ordering, a rationale, rejected
-alternatives. A plan has no status, no assignee, and must never appear in Jira.
+alternatives. A plan has no status and no assignee.
 Planning lives in a separate tool that reads through `rp --json` and creates tickets
 through `rp new --parent`. Nothing flows back; Rohrpost does not know a plan existed.
 
@@ -295,7 +294,7 @@ genuinely needed.
 
 ## 6. The fold
 
-`tickets.jsonl` is produced from `log.jsonl` by:
+Tickets are produced from the log, on every invocation, by:
 
 1. Read all events from `archive/*.jsonl` then `log.jsonl`.
 2. **Deduplicate by event `id`** (union merge can produce duplicates).
@@ -316,15 +315,20 @@ would fix it and are not worth the complexity at this scale.
 
 `rp compact`:
 
-1. Fold everything.
-2. Move all events belonging to tickets terminal for more than `archive_after`
-   (default 90d) into `archive/log-<YYYY>-Q<N>.jsonl`.
+1. Fold everything (archive and live log).
+2. For every ticket terminal for more than `archive_after` (default 90d), append its
+   events **from the live log** to `archive/log-<YYYY>-Q<N>.jsonl` (bucketed by the
+   event's own timestamp). Events already in the archive stay where they are.
 3. Rewrite `log.jsonl` with the remainder.
+
+The archive append happens **before** the log rewrite: an interruption between the two
+leaves duplicated events, which the fold removes on read, never lost ones.
 
 **Compaction rewrites a union-merged file and therefore must only ever run on a clean
 `main` with no open branches carrying unmerged events.** `rp compact` refuses if the
-working tree is dirty or `HEAD` is not the configured default branch. This is the one
-operation in the system that can lose data if run carelessly.
+working tree is dirty or `HEAD` is not the configured default branch (`--force`
+overrides). This is the one operation in the system that can lose data if run
+carelessly.
 
 ---
 
@@ -344,128 +348,42 @@ wrong becomes state.
 | Same ticket, same field, two branches | Per-field LWW by `ts` |
 | Same ticket, different fields | Both survive — this is the common case |
 | Duplicate events after merge | Dropped by `id` during fold |
-| Stale `tickets.jsonl` | Regenerated when mtime is older than `log.jsonl` |
 
 **Platform mechanisms** (implementation notes, not contract):
 
-- **POSIX.** The lock is `fcntl.flock` — advisory, blocking, per open file description,
-  released when the holding process dies. Linux's `O_APPEND` makes the offset update and
-  the write a single atomic step, so a single append cannot interleave even without the
-  lock (**E2** saw no corruption without it even at 64 KB). The lock is retained anyway,
-  for three reasons — none of them single-append integrity: portability (POSIX
-  guarantees only the offset update, and NFS cannot do atomic append at all — the lock
-  restores the guarantee on filesystems that lack it); compaction's multi-step rewrite
-  of log and archive files (`tickets.jsonl` needs no lock: it is rebuilt from the fold
-  by an atomic temp-rename); and the short-write backstop (`store.append_event` treats
-  a short write as fatal — it rolls back the partial line and raises rather than
-  resuming). `PIPE_BUF` is irrelevant here: it governs pipes and FIFOs, not regular
-  files.
-- **Windows.** The lock is `msvcrt.locking` on byte range [0, 1) of `.lock` — enforced,
-  so even plain I/O through another handle fails inside the locked range; released when
-  the holding process dies. Acquisition waits are bounded (~10 s, CRT-paced retries) and
-  fail with a loud error rather than hanging. Windows documents no atomic-append
-  equivalent, so the lock — not `O_APPEND` — is what serialises appends; each append is
-  one binary-mode write (no text translation) under the lock.
+- The lock is the Rust standard library's `File::lock` on `.rohrpost/.lock`: `flock` on
+  Linux and macOS (advisory, per open file description), `LockFileEx` on Windows
+  (mandatory, per handle). Both block until acquired and release when the holding
+  process dies. Only `.lock` is ever locked — never the log — so the Windows
+  enforcement cannot interfere with readers.
+- Appends open the log in append mode: `O_APPEND` on POSIX (offset update and write
+  are one atomic step on Linux) and `FILE_APPEND_DATA` on Windows. Each event is one
+  `write_all` of one line inside the lock; a write that fails part-way is rolled back by
+  truncating the file to its previous length rather than resumed.
+- The lock is retained even where `O_APPEND` alone would suffice, for portability
+  (NFS, Windows), for compaction's multi-step rewrite, and as the short-write backstop.
 
 The contract is the guarantee above; either mechanism satisfies it. Tests map onto the
-guarantees, not the syscalls.
+guarantees, not the syscalls — including a twelve-process concurrent-append race that
+runs on all three platforms in CI.
 
 ---
 
-## 8. Sync
+## 8. Sync (removed)
 
-The hard part, and the part neither beads nor seeds has to solve: **the remote can
-change behind your back.** Every sync is therefore a three-way merge, and a three-way
-merge needs a base.
-
-### 8.1 Shadow snapshots
-
-`shadow/<remote>/<ref>.json` holds the remote's field values **as of the last
-successful sync**. It is the merge base. Without it you cannot distinguish "local
-changed" from "remote changed" from "both changed", and you will either clobber
-people's Jira edits or refuse to sync anything.
-
-### 8.2 Per-field resolution
-
-For each mapped field, with `base` = shadow, `local` = folded ticket, `remote` = live:
-
-| Condition | Action |
-|---|---|
-| `local == remote` | nothing |
-| `local == base`, `remote != base` | take remote → append `set` event, actor `remote/<name>` |
-| `remote == base`, `local != base` | push local to remote |
-| all three differ | **conflict** → apply policy |
-
-Conflict policy per remote in config: `flag` (default), `local`, `remote`.
-`flag` writes a `set` event moving the ticket to `status: review`, adds a
-`conflict:<remote>` label, and records both values in a comment. `rp conflicts` lists
-them; `rp resolve <id> --take local|remote` clears them. `local` and `remote`
-record the losing value in a comment before applying the configured winner.
-
-Set-valued fields compose independent additions and removals. For example,
-`labels` with base `[a]`, local `[a,b]`, and remote `[a,c]` converges to
-`[a,b,c]` rather than raising a conflict.
-
-### 8.3 Body merge
-
-Prose is the one field where per-field LWW is unacceptable — it throws away real
-human writing. Merge bodies with a genuine three-way text merge by shelling out to
-`git merge-file -p` over three temp files (present wherever Rohrpost runs, well-tested,
-no dependency).
-On conflict, keep the markers in the body and flag as above.
-
-### 8.4 Sync round
-
-```
-rp sync [remote] [--dry-run]
-  1. pull remote items changed since shadow watermark (updated_at / ETag)
-  2. for each linked ticket: three-way merge per field (8.2), body via 8.3
-  3. append resulting set-events with actor "remote/<name>"
-  4. push locally-won fields to the remote
-  5. rewrite shadow from post-sync remote state
-  6. append one `synced` event per remote
-```
-
-Steps 3 and 5 must be ordered so a crash between them leaves a stale shadow rather
-than a lost update: a stale shadow causes a redundant merge next round, which is
-idempotent. The reverse ordering loses data.
-
-`--dry-run` prints the plan and touches nothing. It is the default in CI.
-
-### 8.5 Providers
-
-| Remote | Access | Notes |
-|---|---|---|
-| GitHub | `gh` CLI preferred, `httpx` fallback | **Build first** — `gh` reuses the runner's auth; `httpx` covers hosts without `gh` |
-| GitLab | `python-gitlab` | Mature |
-| Jira | `jira` or REST | Field mapping is the work; custom fields vary per install |
-| Linear | GraphQL via `httpx` | No Python SDK. Direct GraphQL is an afternoon |
-
-Mapping lives in `config.toml`, per remote, and is explicit — no field is synced
-unless it is listed. Unmapped remote fields are preserved untouched on push.
-
-```toml
-[project]
-prefix = "FAC"
-
-[remotes.jira]
-url     = "https://acme.atlassian.net"
-project = "PROJ"
-policy  = "flag"
-
-[remotes.jira.fields]
-title    = "summary"
-body     = "description"
-status   = { open = "To Do", in_progress = "In Progress", done = "Done" }
-priority = "priority"
-```
+v0.1 specified a bidirectional sync layer: shadow snapshots as a three-way merge base,
+per-field resolution with conflict policies, `git merge-file` for prose bodies, and
+per-tracker providers starting with GitHub. It was implemented, then **removed in v0.2**
+as overkill: an order of magnitude more code than the store, with no workflow that
+needed it. Anything that wants a remote tracker lives one level up (§3.1) and drives
+`rp --json`, as every other consumer does. The decision is recorded in ADR 0001.
 
 ---
 
 ## 9. Comments and boundaries
 
-Rohrpost stores **notes**: short, ticket-scoped, locally authored, never synced.
-A runner records why it retried, a human records a caveat. That is all.
+Rohrpost stores **notes**: short, ticket-scoped, locally authored. A runner records
+why it retried, a human records a caveat. That is all.
 
 ```
 rp comment RP-a1b2 "retried with backoff, still 429s"
@@ -474,7 +392,7 @@ rp comment RP-a1b2 "retried with backoff, still 429s"
 Appended as a `comment` event, folded into a `comments` list on the ticket. Text output
 surfaces them via `rp show --include notes` (last 10); `rp show --json` returns the full
 list, as does `rp comments <id>`. The default `rp show` (summary + body) omits notes. No
-threading, no anchors, no resolution state, no sync in either direction.
+threading, no anchors, no resolution state.
 
 ### 9.1 What Rohrpost does not do
 
@@ -483,6 +401,7 @@ knowledge of it. Explicitly out of scope, permanently:
 
 | Not in Rohrpost | Why |
 |---|---|
+| Mirroring tickets into GitHub, Jira, GitLab or Linear | Removed in v0.2 (§8): a merge base beside the data was elegant and unused |
 | Ingesting remote comments | Not ticket-shaped. A review comment may concern a ticket, a policy, a runner, or nothing |
 | PR review threads, anchors, resolution | Belongs with whatever watches PRs |
 | Asking humans questions and awaiting answers | Requires a listener; Rohrpost has no daemon |
@@ -492,11 +411,8 @@ knowledge of it. Explicitly out of scope, permanently:
 
 **The dependency runs one way.** The higher-level system knows about Rohrpost and
 drives it through the CLI. Rohrpost does not know the higher-level system exists. This
-is what keeps `uvx rohrpost` useful standalone in any repo, which was the original
+is what keeps a single `rp` binary useful standalone in any repo, which was the original
 requirement and is worth more than any feature listed above.
-
-Section 8 sync stays in Rohrpost because field sync needs a merge base and a merge
-base needs to live beside the data. Reactive ingestion does not.
 
 ### 9.2 The interface contract
 
@@ -511,44 +427,41 @@ the log directly, however tempting.
   that is a signal the boundary is wrong — not a reason to add a seventh command.
 
 Decisions land in Rohrpost; discussion stays where it was written. A human answering a
-blocking question in Jira results in one `rp set` and one `rp comment` recording the
+blocking question elsewhere results in one `rp set` and one `rp comment` recording the
 answer, not a mirrored thread.
 
 ## 10. CLI
 
 ```
-rp init                                  scaffold .rohrpost/
+rp init [--prefix ABC]                   scaffold .rohrpost/
 rp new "title" [--template bug] [-p 1]   create ticket
 rp ready [--limit N]                     unblocked, actionable work
 rp show <id> [--include body,deps,notes] ticket; defaults to summary + body
 rp tree <id>                             epic and its children
-rp list [--status] [--label] [--parent] [--match]  query
+rp list [--status] [--label] [--parent] [--type] [--match]  query
 rp claim <id>                            → in_progress, stamps actor
-rp set <id> field=value ...              generic update
+rp set <id> field=value ...              generic update (labels+=a,b / labels-=a)
 rp close <id> [--reason "..."]           → done
 rp drop <id> [--reason "..."]            → dropped
 rp comment <id> "..."                    append local note
 rp comments <id>                         all notes on a ticket
-rp link <id> <remote> <ref>              bind to remote item
-rp unlink <id> <remote>                   remove a remote binding
-rp sync [remote] [--dry-run]             three-way sync
-rp conflicts                             list flagged tickets
-rp resolve <id> --take local|remote      clear a conflict
 rp log [<id>]                            raw event history
-rp compact                               archive + truncate (main only)
+rp compact [--force] [--archive-after N] archive + truncate (main only)
 rp doctor                                integrity + config checks
+rp stats                                 size distributions + fold timing
 ```
 
-`--json` on every command. Non-zero exit on error. `NO_COLOR` respected.
+`--json` on every command. `--actor` on every mutation. `--body-file <path|->` on
+`new`, `set` and `comment` for multi-line text without shell heredocs. Non-zero exit on
+error: `1` for a domain failure, `2` for a usage error. `NO_COLOR` respected.
 `rp ready --json` is the single most important call in the system — it is what
 runners invoke to find work, and it must be fast and small.
 
 ### 10.1 `rp doctor`
 
 Checks: log parses; no duplicate event ids after dedupe; every `blocked_by` and
-`parent` resolves; no dependency cycles; every `remotes` entry has a shadow file;
-`.gitattributes` contains the merge and line-ending rules; remote credentials present and
-authenticating; `tickets.jsonl` matches a fresh fold.
+`parent` resolves; no dependency cycles; `.gitattributes` contains the merge and
+line-ending rules. Informational: how many legacy sync events (§5.2) the log carries.
 
 This is the one place the pneumatic metaphor is allowed out: *"3 tickets stuck in the
 tube for >14d"* is more memorable than "3 stale tickets", and nobody has to type it.
@@ -557,26 +470,22 @@ tube for >14d"* is more memorable than "3 stale tickets", and nobody has to type
 
 ## 11. Implementation
 
-- **Python ≥ 3.14**, distributed via `uv` — `uvx rohrpost` runs with no prerequisite
-  toolchain, which matters because agents invoke this from bare containers.
-- **`msgspec`** for JSONL encode/decode with schema validation. Substantially faster
-  than pydantic for line-oriented parsing and gives struct types for free.
-- **`httpx`** for providers that speak HTTP directly. One client, sync API, explicit
-  timeouts. GitHub prefers the `gh` CLI (reusing the runner's auth) and falls back to
-  `httpx` (§8.5).
-- **`fcntl.flock` / `msvcrt.locking`** for the exclusive lock (§7). No dependency;
-  correct on Linux, macOS and Windows.
-- Stdlib `secrets` for entropy and a small hand-rolled base32 encoder for ids; a small
-  ULID helper rather than a dependency.
+- **Rust, standard library only.** One static binary per platform (Linux x86_64 and
+  aarch64, macOS Apple silicon and Intel, Windows x86_64), built from a crate with an
+  empty `[dependencies]` table. Agents invoke `rp` from bare containers, so the tool
+  carries no runtime and no supply chain. Minimum Rust is 1.89, where `File::lock`
+  stabilised.
+- JSON (ordered objects, interned hot keys), the TOML subset used by `config.toml` and
+  templates, argv parsing, RFC 3339 timestamps and id entropy (the OS-seeded
+  `RandomState` hasher) are implemented in-tree, each a few hundred lines scoped to
+  exactly what Rohrpost needs.
+- `File::lock` / append mode for the exclusive lock and the atomic append (§7).
 
-Performance envelope: 3 000 tickets ≈ 30 000 events ≈ 6 MB. A *cold* full fold measures
-~109 ms — apply-bound: ~85 ms replaying 30 000 events (~2.8 µs/event); body size adds
-only ~8 ms across 200 B → 2 KB (see §13.2, signal D4). **No index, no cache
-invalidation, no staleness protocol** — `tickets.jsonl` exists to avoid paying that fold
-on every CLI invocation. It remains regenerable and disposable in principle (delete it
-and it is rebuilt from the log), but in practice the agent hot loop depends on the
-snapshot: at ~109 ms per cold fold, re-folding on every `rp ready` would dominate the
-work-queue call.
+Performance envelope: 3 000 tickets ≈ 30 000 events ≈ 5 MB. A cold read + fold of that
+log measures ~90 ms on a slow aarch64 development box and ~25 ms on a laptop — under
+the 50 ms threshold the v0.1 decision rule (§13.2, D4) set. **There is therefore no
+snapshot, no index and no staleness protocol**: every `rp` invocation folds the log.
+`rp stats` reports `fold_ms` so this can be revisited with data.
 
 ---
 
@@ -584,16 +493,14 @@ work-queue call.
 
 | Phase | Contents | Done when |
 |---|---|---|
-| **0** | Event log, fold, lock, ids, `new`/`ready`/`show`/`claim`/`set`/`close` | A runner can work a ticket end to end |
-| **0** | — a weekend of work. Build it, run it on something real, then re-read this spec | |
-| **1** | Shadow store, three-way merge, **GitHub provider**, `sync`, `conflicts` | A GitHub issue and a ticket stay in step through edits on both sides |
-| **2** | Templates, plans, sidecar bodies, `doctor` | Usable by someone who is not you |
+| **0** | Event log, fold, lock, ids, `new`/`ready`/`show`/`claim`/`set`/`close` | A runner can work a ticket end to end — **done** |
+| **1** | ~~Shadow store, three-way merge, GitHub provider, `sync`, `conflicts`~~ | Built, then removed in v0.2 (§8) |
+| **2** | Templates, `doctor`, `compact`, `stats` — **done**; sidecar bodies pending | Usable by someone who is not you |
 | **2.5** | Nothing. Resist adding a listener here | — |
-| **3** | Jira, Linear, GitLab | |
-| **4** | Compaction, archive, batches as first-class | Only when volume demands it |
+| **3** | Batches as first-class, sidecar bodies | Only when volume demands it |
 
-Do not build phase 2+ features before feeling their absence. The sync layer is an
-order of magnitude more work than the store; spend the effort there.
+Do not build features before feeling their absence. The sync layer was an order of
+magnitude more work than the store and was removed unused — the lesson of v0.1.
 
 ---
 
@@ -607,8 +514,8 @@ phase 0 has run against real work.
    configurable threshold (default 4096 bytes) spills to `bodies/<id>.md` on write, and
    `rp show` resolves either form transparently. §5.3 already permits both shapes, so
    this needs no schema change. Not implemented yet (phase 2).
-2. **Is `tickets.jsonl` ever committed?** Currently no. Committing enables `git grep`
-   and cheap CI reads at the cost of churn on every commit.
+2. **Is `tickets.jsonl` ever committed?** *Resolved (2026-09-03) — there is no
+   `tickets.jsonl`.* The native fold made the cache unnecessary (§11).
 3. **Do runners write events directly or always shell out to `rp`?** Direct writes are
    faster; shelling out keeps validation in one place. Start with shelling out.
 4. **Does `rp` commit, or leave staging to the caller?** Committing is convenient and
@@ -664,8 +571,7 @@ needs no schema change.
 The workload is not one distribution, so a real-ticket sample is not needed to decide
 the *shape* — only to tune the threshold:
 
-- Epic bodies are spec fragments: kilobytes, repeatedly edited, synced against Jira
-  Epic descriptions.
+- Epic bodies are spec fragments: kilobytes, repeatedly edited.
 - Task bodies are a paragraph written once.
 
 A size threshold catches the large epic bodies regardless of sample size; the deferred
@@ -682,9 +588,8 @@ Not implemented yet (phase 2) — tracked as follow-up tickets.
 
 - **E7 bug, fixed.** `rp ready --json` / `rp list --json` used to include every
   ticket's full body, so the work-queue view charged the agent for prose. The
-  short mapping shape now omits the body
-  (`ticket_to_mapping(..., include_body=False)`), verified flat by
-  `bench_ready_context.py`.
+  short shape (`fold::Shape::SHORT`) now omits the body, comments and `_fieldts`,
+  pinned by an end-to-end test.
 
 ---
 
@@ -726,10 +631,18 @@ footers). Designed in full, then cut. Remote comments are not ticket-shaped and
 ingesting them requires a listener, which breaks the no-daemon property and the
 standalone-tool property together. Moved up a level. What survives is local notes.
 
+**Bidirectional sync with SaaS trackers** (v0.1 §8: shadow merge bases, per-field
+three-way merge, `git merge-file` for bodies, a GitHub provider). Built, then removed
+in v0.2: the expensive half of the system served no workflow. See ADR 0001.
+
+**A Python runtime** (v0.1: Python 3.14 + `msgspec` + `httpx` via `uv`). Replaced by a
+dependency-free Rust binary in v0.2: the Windows pass showed that most of the effort
+went into the runtime (interpreter, venv, locking shims, text-mode descriptors, per-shell
+wrappers) rather than into tickets, and agents run `rp` from bare containers.
+
 **Plans as a Rohrpost entity** (either `type: plan` or a separate `plans.jsonl`).
-Epics are durable structure and stay; plans are transient reasoning and moved out. The
-distinction that settled it: an epic mirrors to a Jira Epic and therefore wants the
-ticket sync path, while a plan must never reach Jira at all.
+Epics are durable structure and stay; plans are transient reasoning and moved out. An
+epic has status and children; a plan has neither.
 
 **`blocks[]` stored alongside `blocked_by[]`, and `children[]` alongside `parent`**
 (as seeds does). Denormalized reverse edges mean every structural edit writes two

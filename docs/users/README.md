@@ -12,15 +12,14 @@ automation; the default human-readable output is for terminals.
 
 ## Install
 
-```bash
-uvx rohrpost <command>      # runs with no prerequisite toolchain
-```
+`rp` is a single static binary with no runtime requirements. Download the build
+for your platform from the
+[releases page](https://github.com/code-factorio/rohrpost/releases) — Linux
+(x86_64, aarch64), macOS (Apple silicon, Intel), Windows (x86_64) — and put it
+on your `PATH`. Or build it yourself with a Rust toolchain (1.89+):
 
-or, inside the repo:
-
 ```bash
-uv sync
-uv run rp <command>
+cargo install --git https://github.com/code-factorio/rohrpost --locked
 ```
 
 `rp` discovers the nearest `.rohrpost/` by walking up from the current directory,
@@ -37,11 +36,10 @@ rp init --prefix FAC        # set the display prefix (2-5 uppercase letters)
 
 `init` proposes a prefix from the directory name and writes:
 
-- `.rohrpost/config.toml` — the display prefix (and, later, remote mappings)
+- `.rohrpost/config.toml` — the display prefix and the compaction branch
 - `.rohrpost/log.jsonl` — the append-only event log (committed; **truth**)
-- `.rohrpost/archive/`, `.rohrpost/shadow/`, `.rohrpost/templates/`
-- `.gitattributes` merge and line-ending rules and a `.gitignore` for the regenerable
-  `tickets.jsonl` snapshot
+- `.rohrpost/archive/`, `.rohrpost/templates/`
+- `.gitattributes` merge and line-ending rules for the log
 
 `init` is idempotent — re-running fills in anything missing without clobbering
 an existing config.
@@ -79,7 +77,18 @@ Flags: `--type task|bug|spike|epic`, `-p/--priority 0..4` (0 highest), `--label`
 (repeatable), `--blocked-by` (repeatable), `--parent`, `--assignee`, `--body`.
 `--template NAME` loads defaults from `.rohrpost/templates/NAME.toml`; command-line
 values override template defaults. A template may use top-level fields or a
-`[defaults]`, `[fields]`, or `[ticket]` table.
+`[defaults]`, `[fields]`, or `[ticket]` table:
+
+```toml
+[defaults]
+type = "bug"
+priority = 1
+labels = ["needs-triage"]
+body = """
+## Steps to reproduce
+
+"""
+```
 
 ### Multi-line bodies: `--body-file`
 
@@ -110,7 +119,7 @@ rp ready --json           # machine-readable
 ```
 
 `rp ready --json` is the single most important call for a runner — it is how an
-agent finds work. It is fast and small.
+agent finds work. It is fast and small: the list shapes never carry bodies.
 
 ### Work a ticket
 
@@ -119,7 +128,6 @@ rp claim <id>             # -> in_progress, stamps the actor as assignee
 rp set <id> status=review priority=1
 rp set <id> labels+=auth,bug labels-=ui
 rp comment <id> "retried with backoff, still 429s"
-rp unlink <id> github
 rp close <id> --reason "implemented with exponential backoff"
 rp drop <id> --reason "wontfix"
 ```
@@ -139,7 +147,8 @@ rp show <id> --include body,deps,notes,fieldts
 rp comments <id>                      # all local notes
 rp tree <epic-id>                     # an epic and its direct children
 rp list --status open --label auth    # query
-rp list --match "token refresh"      # case-insensitive substring of the title
+rp list --status ready                # derived statuses are queryable
+rp list --match "token refresh"       # case-insensitive substring of the title
 rp log [<id>]                         # raw event history
 ```
 
@@ -165,12 +174,11 @@ children point at it via `parent` (one level of nesting). Epic status is derived
 
 ## Actors
 
-Every event records who did it under one of three namespaces:
+Every event records who did it under one of two namespaces:
 
 - `user/<git config user.email>` — a human (the default)
 - `runner/<agent>@<batch>` — a coding agent. Set via the `ROHRPOST_RUNNER` and
   `ROHRPOST_BATCH` env vars, or `--actor`.
-- `remote/<name>` — a change that arrived through sync
 
 `--actor` overrides everything; `ROHRPOST_ACTOR` overrides the env-derived form.
 
@@ -179,15 +187,18 @@ Every event records who did it under one of three namespaces:
 ## Integrity and maintenance
 
 ```bash
-rp doctor        # log parses; no dup ids; refs resolve; no cycles;
-                 # gitattributes/shadow rules; credentials; fresh snapshot
+rp doctor        # log parses; no dup ids; refs resolve; no cycles; gitattributes rules
 rp compact       # archive tickets terminal for >90d; main branch only
+rp stats         # body/line size distributions, cold fold timing
 ```
 
 `doctor` is the one place the pneumatic metaphor is allowed out: it reports
-tickets "stuck in the tube". `compact` is the only operation that rewrites the
-log, so it refuses unless the tree is clean and `HEAD` is on the default branch
-(`--force` overrides).
+whether anything is "stuck in the tube", and exits non-zero when something needs
+attention. `compact` is the only operation that rewrites the log, so it refuses
+unless the tree is clean and `HEAD` is on the default branch (`main`, or
+`default_branch` in `config.toml`; `--force` overrides). It moves the events of
+long-terminal tickets from `log.jsonl` into `archive/log-<YYYY>-Q<N>.jsonl`;
+both stay committed and both are read on every fold.
 
 ---
 
@@ -199,61 +210,25 @@ Every command takes `--json` and returns structured output. Tickets render as:
 {
   "id": "FAC-a1b2c3", "title": "...", "type": "task", "status": "open",
   "priority": 2, "parent": null, "blocked_by": [], "labels": ["auth"],
-  "assignee": null, "body": null, "remotes": {}, "last_close_reason": null,
-  "created": "2026-08-11T09:14:02Z", "updated": "2026-08-11T11:02:38Z",
+  "assignee": null, "body": null, "last_close_reason": null,
+  "created": "2026-08-11T09:14:02.000Z", "updated": "2026-08-11T11:02:38.000Z",
   "comments": [...],
-  "_fieldts": { "status": "2026-08-11T11:02:38Z", ... }   // last-write ts per field
+  "_fieldts": { "status": "2026-08-11T11:02:38.000Z", ... }   // last-write ts per field
 }
 ```
 
-Exit codes: `0` success, `1` a domain failure (no such ticket, bad status, …),
-`2` a usage error. `NO_COLOR` is respected.
-
----
-
-## Syncing with a remote tracker
-
-Rohrpost mirrors tickets into a linked SaaS tracker (spec §8). Configure a
-remote in `config.toml`, link a ticket to a remote item, then run `rp sync`:
-
-```toml
-[remotes.github]
-repo  = "owner/name"
-policy = "flag"            # flag (default) | local | remote
-
-[remotes.github.fields]
-title  = "title"
-body   = "body"
-status = { open = "open", in_progress = "open", done = "closed", dropped = "closed" }
-```
-
-```bash
-rp link <id> github 42       # bind a ticket to GitHub issue #42
-rp unlink <id> github         # remove the binding
-rp sync --dry-run            # print the plan, touch nothing
-rp sync                      # three-way merge: pull remote edits, push local edits
-rp conflicts                 # tickets flagged when both sides changed a field
-rp resolve <id> --take local # clear a conflict (edit the fields first, then resolve)
-```
-
-Every sync is a **three-way merge** against a shadow snapshot (the remote's last
-synced state, stored under `.rohrpost/shadow/`). When both sides changed the same
-field, the `flag` policy moves the ticket to `review`, tags it
-`conflict:<remote>`, and records both values in a comment. Prose bodies get a
-genuine text merge (via `git merge-file`) instead of overwriting.
-
-The GitHub provider **prefers the `gh` CLI** (so it uses your `gh auth login`)
-and falls back to the GitHub REST API via `httpx` (token from `GITHUB_TOKEN` or
-`ROHRPOST_GITHUB_TOKEN`) when `gh` is absent. Mapped `labels` merge as a set:
-independent additions/removals compose instead of becoming scalar conflicts.
+`rp list`/`rp ready`/`rp tree`'s children use a short shape without `body`,
+`comments` and `_fieldts`. Exit codes: `0` success, `1` a domain failure (no such
+ticket, bad status, …), `2` a usage error. `NO_COLOR` and `CLICOLOR=0` are
+respected, and colour is off whenever stdout is not a terminal.
 
 ---
 
 ## What Rohrpost does not do
 
-Rohrpost stores **tickets** and **notes** (local notes are never synced). It
-deliberately does not ingest remote comments, run webhooks, decide *when*
-something is `waiting`, or track CI results — those belong to the surrounding
-system. The dependency runs one way: the outer system drives `rp`; `rp` only
-reaches out during an explicit `rp sync`. See the
-[spec](../spec/ROHRPOST-SPEC.md) §9.1 for the full boundary.
+Rohrpost stores **tickets** and **notes**. It deliberately does not mirror
+tickets into GitHub, Jira or any other tracker (that layer existed once and was
+removed as overkill — see ADR 0001), ingest remote comments, run webhooks,
+decide *when* something is `waiting`, or track CI results. Those belong to the
+surrounding system, which drives `rp --json`; `rp` never reaches the network.
+See the [spec](../spec/ROHRPOST-SPEC.md) §9.1 for the full boundary.

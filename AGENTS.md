@@ -4,7 +4,9 @@ This is the opensource project `rohrpost` the tool is supposed to be agent first
 
 ### Issue tracker
 
-Issues live in Rohrpost itself — this repo dogfoods `rp` (run as `uv run rp ... --json`); no external tracker. See `docs/agents/issue-tracker.md`.
+Issues live in Rohrpost itself — this repo dogfoods `rp` (run the working-tree
+build as `cargo run -q -- ... --json`); no external tracker. See
+`docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -22,13 +24,15 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 ### Coding preferences
 - Maintainability is a must.
 - Keep things simple. `KISS` and follow the `YAGNI` mantra unless told otherwise.
-- Typehints are useful, use them.
+- Standard-library Rust only: the crate has no dependencies, on purpose. Do not add any.
+- It must build and pass its tests on Linux, macOS and Windows.
 - Tests are good! Smoke tests, regression tests for feature deletions are not useful. Tests should be focused, not slop.
 - Comments are a great way to clarify functionality and how code is used. Don't comment every line. Simple functions that are mostly self describing by the name do not need a doc string. More complex functions do. Also what the purpose of a class and what the purpose of a module is, is a good thing to document.
 - Keep comments and documentation up to date! When making changes it's important to keep things in sync.
 
+
 ### Documentation
-- Separate documentation for maintainers in docs/maintainers, for end users docs/users and maintain an installable skill for coding agents to understand how to use rohrpost most efficiently in ./skills/rohrpost 
+- Separate documentation for maintainers in docs/maintainers, for end users docs/users and maintain an installable skill for coding agents to understand how to use rohrpost most efficiently in ./.agents/skills/rohrpost
   Use `tessl` for skill review, verification and validation.
 - Research notes — prior art surveyed against primary sources to inform a decision — go in docs/research, one Markdown file per question, every claim carrying its source link. They record evidence, not recommendations; the decision itself belongs in a ticket or an ADR.
 
