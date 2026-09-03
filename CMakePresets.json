@@ -1,0 +1,66 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "RP_BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "linux",
+      "inherits": "base",
+      "displayName": "Linux (GCC/Clang)",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-release",
+      "inherits": "linux",
+      "displayName": "Linux release binary (static C++ runtime)",
+      "cacheVariables": { "RP_STATIC_RUNTIME": "ON", "RP_WERROR": "ON" }
+    },
+    {
+      "name": "macos",
+      "inherits": "base",
+      "displayName": "macOS (Apple Clang)",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": { "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3" }
+    },
+    {
+      "name": "macos-release",
+      "inherits": "macos",
+      "displayName": "macOS universal release binary",
+      "cacheVariables": { "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64", "RP_STATIC_RUNTIME": "ON", "RP_WERROR": "ON" }
+    },
+    {
+      "name": "windows",
+      "inherits": "base",
+      "displayName": "Windows (MSVC, from a Developer Command Prompt)",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "windows-release",
+      "inherits": "windows",
+      "displayName": "Windows release binary (static CRT)",
+      "cacheVariables": { "RP_STATIC_RUNTIME": "ON", "RP_WERROR": "ON" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "linux", "configurePreset": "linux" },
+    { "name": "linux-release", "configurePreset": "linux-release" },
+    { "name": "macos", "configurePreset": "macos" },
+    { "name": "macos-release", "configurePreset": "macos-release" },
+    { "name": "windows", "configurePreset": "windows" },
+    { "name": "windows-release", "configurePreset": "windows-release" }
+  ],
+  "testPresets": [
+    { "name": "linux", "configurePreset": "linux", "output": { "outputOnFailure": true } },
+    { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } },
+    { "name": "macos", "configurePreset": "macos", "output": { "outputOnFailure": true } },
+    { "name": "macos-release", "configurePreset": "macos-release", "output": { "outputOnFailure": true } },
+    { "name": "windows", "configurePreset": "windows", "output": { "outputOnFailure": true } },
+    { "name": "windows-release", "configurePreset": "windows-release", "output": { "outputOnFailure": true } }
+  ]
+}
