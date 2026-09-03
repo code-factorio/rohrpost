@@ -315,8 +315,11 @@ fn build_event(ticket: &str, op: &str, actor: &str) -> Result<Event> {
     })
 }
 
+/// Append under the store lock and re-fold while still holding it, so the
+/// returned state is never read through another writer's in-flight append.
 fn append_and_reload(rohrpost_dir: &Path, event: Event) -> Result<Ticket> {
-    store::append_event(rohrpost_dir, &event)?;
+    let _guard = store::file_lock(rohrpost_dir)?;
+    store::append_event_locked(rohrpost_dir, &event)?;
     load_tickets(rohrpost_dir)?
         .remove(&event.ticket)
         .ok_or_else(|| {
