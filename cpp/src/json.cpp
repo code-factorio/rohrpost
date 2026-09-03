@@ -62,10 +62,6 @@ void write_object(std::string& out, const Json& value, const Style& style, int d
     }
     std::vector<const Json::object_t::value_type*> entries;
     entries.reserve(value.size());
-    for (const auto& item : value.items()) {
-        // items() yields proxies; take the underlying object entries instead.
-        (void)item;
-    }
     const auto& obj = value.get_ref<const Json::object_t&>();
     for (const auto& entry : obj) entries.push_back(&entry);
     if (style.sort_keys) {

@@ -654,10 +654,8 @@ Namespace Parser::parse_known_args(const std::vector<std::string>& args, std::ve
         std::vector<std::string> values;
         if (opt.explicit_arg) {
             if (!takes_value(a)) {
-                if (a.option_strings.front().size() == 2 && !opt.option_string.starts_with("--") && !opt.explicit_arg->empty()) {
-                    // A single-dash flag with trailing characters (`-hx`): argparse
-                    // would try to chain flags; rp has none to chain, so error.
-                }
+                // argparse would try to chain single-dash flags (`-hx`); rp has
+                // no chainable flags, so every explicit value is an error.
                 throw error(std::format("argument {}: ignored explicit argument {}", arg_name(a), py::repr(*opt.explicit_arg)));
             }
             values.push_back(*opt.explicit_arg);
