@@ -1,7 +1,7 @@
 {
   "skm": 1,
   "source": "codebase-design",
-  "collectionCommit": "c25ad34f831a11fdd729cab93352eb1224c4f011",
+  "collectionCommit": "9d8bc83cb33f160e8c2e00dafa66c84089489148",
   "files": {
     "DEEPENING.md": "sha256:f3dd099ce99289bd213914d8ee3e2429b78309c3957ca4583f7659551b1d53c1",
     "DESIGN-IT-TWICE.md": "sha256:8e740bf98446dbd4dfdc132ac4346d9a7eedaf93de6a495889171cf7f99f16bd",

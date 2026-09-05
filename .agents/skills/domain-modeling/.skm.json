@@ -1,7 +1,7 @@
 {
   "skm": 1,
   "source": "domain-modeling",
-  "collectionCommit": "c25ad34f831a11fdd729cab93352eb1224c4f011",
+  "collectionCommit": "9d8bc83cb33f160e8c2e00dafa66c84089489148",
   "files": {
     "ADR-FORMAT.md": "sha256:944c92aa790e8fbdc9199640b170979abb8a34ba8d0fe18c2a01a63bce140ca0",
     "CONTEXT-FORMAT.md": "sha256:17ab16ce783e4d2801ee52fd9acdf550cbf44de65ae76797a93943bbedf22a13",

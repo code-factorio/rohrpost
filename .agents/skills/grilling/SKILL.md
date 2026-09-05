@@ -12,8 +12,13 @@ Each question should be formatted like so:
 ```
 ❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
 
-➡️ <your recommended answer>
+➡️ <your recommended answer> — **Confidence: <NN>%**, <one-line reason>
 ```
+
+Every recommendation carries a confidence score — a percentage plus a one-line
+reason — the same convention wayfinder applies to map recommendations. When a
+round must be restated (the user asks, or a round is revised), restate it
+complete with scores.
 
 Each round the user answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
 

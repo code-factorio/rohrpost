@@ -14,7 +14,7 @@ Ticket ids are bare (`a1b2c3`) or rendered with the project's display prefix (`R
 - **Read a ticket**: `rp show <id> --include body,deps,notes --json`. Notes are the comment thread; `rp comments <id> --json` fetches them alone.
 - **List tickets**: `rp list --status open --label <label> --json`. Also filters on `--type`, `--parent`, and `--match <text>` for a case-insensitive substring of the title. Filters compose.
 - **Find work**: `rp ready --json` — open, unblocked, non-epic tickets, highest priority first. This is the queue an agent picks from.
-- **Comment**: `rp comment <id> "<note>"`. Notes are local and never synced.
+- **Comment**: `rp comment <id> "<note>"` (or `--body-file` for long notes). Notes are local and never leave the repo.
 - **Apply / remove labels**: `rp set <id> labels+=a,b` / `rp set <id> labels-=a`. Set fields use `+=` / `-=` so two concurrent runners compose instead of clobbering.
 - **Update any scalar field**: `rp set <id> status=review priority=1` (`title`, `type`, `status`, `priority`, `assignee`, `parent`, `body`).
 - **Claim**: `rp claim <id>` — moves to `in_progress` and stamps the actor as assignee.
@@ -22,14 +22,7 @@ Ticket ids are bare (`a1b2c3`) or rendered with the project's display prefix (`R
 
 All mutations are idempotent: re-running `rp close` on a done ticket appends nothing and still exits `0`.
 
-Multi-line bodies go through `--body-file` (a path, or `-` for stdin) — one command line that runs in PowerShell, cmd and Git Bash alike; `--body "$(cat body.md)"` does not survive the trip. From PowerShell, pipe a here-string:
-
-```powershell
-@'
-## Context
-...
-'@ | rp new "Child task" --json --body-file -
-```
+Multi-line bodies go through `--body-file` — a path, or `-` for stdin: `rp new "<title>" --body-file body.md --json`, or pipe a heredoc into `--body-file -`. `--body` and `--body-file` are mutually exclusive; `set` takes `--body-file` too (exclusive with `body=`).
 
 ## Statuses
 
@@ -43,7 +36,7 @@ Agents should identify themselves so the log distinguishes them from humans: set
 
 ## When a skill says "publish to the issue tracker"
 
-Run `rp new`, putting the ticket prose in `--body` (one line) or `--body-file` (multi-line).
+Run `rp new`, putting the ticket prose in `--body`.
 
 ## When a skill says "fetch the relevant ticket"
 
@@ -59,12 +52,12 @@ When set to `yes`, read the PR with the host's own CLI, then record each one as 
 
 Used by `/wayfinder`. The **map** is an epic; its **child tickets** are the epic's children. Rohrpost has native parent and blocking relationships, so no body conventions are needed.
 
-- **Map**: an epic labelled `wayfinder:map`, holding the Destination / Notes / Decisions-so-far / Fog body: `rp new "<destination>" --type epic --label wayfinder:map --body "<map body>" --json`. Update it in place with `rp set <map-id> body="<new map body>"` — read the current body first (`rp show <map-id> --include body --json`), edit it, write it back whole.
-- **Child ticket**: `rp new "<question>" --parent <map-id> --label wayfinder:<type> --body "## Question\n\n<...>" --json`, where `<type>` is `research`, `prototype`, `grilling`, or `task`. Epics nest one level: children of the map, never grandchildren.
+- **Map**: an epic labelled `wayfinder:map`, holding the Destination / Notes / Decisions-so-far / Fog body: `rp new "<destination>" --type epic --label wayfinder:map --body-file map.md --json`. Update it in place — read the current body first (`rp show <map-id> --include body --json`), edit it, write it back whole with `rp set <map-id> --body-file map.md --json`.
+- **Child ticket**: `rp new "<question>" --parent <map-id> --label wayfinder:<type> --json --body-file - <<'EOF'` with the `## Question` prose on stdin, where `<type>` is `research`, `prototype`, `grilling`, or `task`. Epics nest one level: children of the map, never grandchildren.
 - **Blocking**: native `blocked_by`. Set at creation with `--blocked-by <id>` (repeatable) or later with `rp set <child> blocked_by+=<id>` / `blocked_by-=<id>`. A ticket is unblocked when every blocker is `done`.
 - **Frontier query**: `rp ready --json`, then keep tickets whose `parent` is the map id. `ready` already excludes blocked tickets, epics, and anything claimed (a claim moves the ticket to `in_progress`). First in the list wins.
 - **Claim**: `rp claim <id>` — the session's first write, before any work.
-- **Resolve**: `rp comment <id> "<answer>"`, then `rp close <id> --reason "<one-line gist>"`, then append the gist plus a link to the map's Decisions-so-far via `rp set <map-id> body=...`.
+- **Resolve**: `rp comment <id> "<answer>"`, then `rp close <id> --reason "<one-line gist>"`, then append the gist plus a link to the map's Decisions-so-far via `rp set <map-id> --body-file ...`.
 - **Rule out of scope**: `rp drop <id> --reason "<why it sits past the destination>"`, then add a line to the map's **Out of scope** section. Use `drop`, not `close` — `done` would file a mis-scoped ticket among the map's decisions, and `dropped` is the terminal for work abandoned rather than resolved.
 - **Whole-map view**: `rp tree <map-id> --json` renders the epic and its children.
 
@@ -110,4 +103,4 @@ rp tree <map-id> --json               # -> the map and every child
 
 `rp tree` is authoritative where a title search is not: it still finds a child whose handle was renumbered, dropped, or never applied in the first place.
 
-Titles are mutable and sync bidirectionally under per-field last-write-wins, so a remote edit can drop a handle. Do not treat a handle as a durable external reference — it is a convenience for typing, not an identifier to cite in a commit message.
+Titles are mutable and fold under per-field last-write-wins, so any later edit can drop a handle. Do not treat a handle as a durable external reference — it is a convenience for typing, not an identifier to cite in a commit message.

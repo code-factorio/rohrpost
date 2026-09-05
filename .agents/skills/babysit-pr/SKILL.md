@@ -65,12 +65,13 @@ Done when: every open thread carries a reply, or a drafted reply awaiting the us
 
 ## 4. Clear red CI runs
 
-Pull the failed checks for the head commit using `gh pr checks <number>` or `gh run list --branch <branch>`. Read the failed run logs with `gh run view <run-id> --log-failed` before touching anything. Sort each failure:
+Pull the failed checks for the head commit using `gh pr checks <number>` or `gh run list --branch <branch>`. Read the failed run logs with `gh run view <run-id> --log-failed` before touching anything. Search the log (`… --log-failed | rg -i 'fail|error'`) instead of reading its tail — the failing gate often sits earlier than the end-of-run summary. Sort each failure:
 
 - **Real**: your code or your test broke it. Fix the root cause. Never weaken an assertion, skip a test, or loosen a lint rule to reach green.
 - **Flake**: non-deterministic, unrelated to the diff, passes on rerun. Retry the job with `gh run rerun <run-id> --failed`. State that you did, and state which job.
 - **Infrastructure**: runner, network, credentials, registry. Report it with the log snippet.
 - **Pre-existing**: the base branch is red too. Report it and move on.
+- **Blocked**: the run is in `waiting` with no started steps — a deployment-environment approval gate, not a failure.
 
 When the repository has local test or lint commands, run it after your changes and before pushing. A local run costs seconds; a CI cycle costs minutes.
 
@@ -103,10 +104,7 @@ Done when: the title matches the observed convention, the description follows th
 
 Update the linked ticket or issue state:
 
-- **Rohrpost (`rp`)** — on Windows each shell runs its own wrapper beside the
-  rohrpost skill (`<rohrpost-skill>\scripts\rohrpost.ps1` in PowerShell,
-  `<rohrpost-skill>\scripts\rohrpost.cmd` in cmd, the path shown below in
-  Git Bash):
+- **Rohrpost (`rp`)**:
   - When the PR is ready for review, set the status to `review`: `<rohrpost-skill>/scripts/rohrpost set <id> status=review --json`.
   - Add a progress note: `<rohrpost-skill>/scripts/rohrpost comment <id> "Updated PR #123 with latest review fixes" --json`.
   - When the PR is merged, close the ticket: `<rohrpost-skill>/scripts/rohrpost close <id> --reason "Merged in PR #123" --json`.
