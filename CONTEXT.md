@@ -24,3 +24,14 @@ _Avoid_: initiative, theme, label, view, project
 The shape every parent edge must keep: a saga sits under nothing, an epic sits under a saga
 or nothing, a leaf sits under a saga, an epic, or nothing.
 _Avoid_: hierarchy check, depth limit, nesting constraint
+
+**Settled**:
+A child whose work is over: its status is terminal, `done` or `dropped`. A parent rolls
+up over settled children, and a dropped child settles it as much as a done one does.
+_Avoid_: closed, finished, resolved
+
+**Derived status**:
+The status a parent with children shows on every read path, computed from its children
+and never stored: `dropped` when all are dropped, `done` when all are settled and one is
+done, `open` otherwise. No verb writes a stored status to such a parent.
+_Avoid_: rollup status, computed status, effective status
