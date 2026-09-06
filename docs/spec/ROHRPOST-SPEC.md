@@ -218,10 +218,10 @@ array field.
 {
   "id":         "RP-a1b2c3",
   "title":      "Fix token refresh race",
-  "type":       "task",          // task | bug | spike | epic
+  "type":       "task",          // task | bug | spike | epic | saga
   "status":     "open",          // see 5.4
   "priority":   2,               // 0 highest .. 4 lowest
-  "parent":     "RP-9f8e7d",     // epic ownership. No children[] — see 5.5
+  "parent":     "RP-9f8e7d",     // epic or saga ownership. No children[] — see 5.5
   "blocked_by": ["RP-4702aa"],
   "labels":     ["auth"],
   "assignee":   "runner/claude-code",
@@ -254,22 +254,101 @@ computes readiness at query time from the dependency graph. Storing it
 would mean every close-event has to cascade writes into unrelated tickets, which is
 exactly the kind of write amplification that produces merge conflicts.
 
-### 5.5 Epics, plans, templates, batches
+A parent with children — an epic or a saga — shows a status **derived from its
+children** on every read path, and no verb writes its stored one (§5.5). `rp ready`
+excludes epics and sagas by type, children or not.
 
-**An epic is a ticket** with `type: epic`. Children point at it via `parent`. One
-entity, one fold, one write path.
+### 5.5 Epics, sagas, plans, templates, batches
+
+**An epic is a ticket** with `type: epic`, and **a saga is a ticket** with `type:
+saga`. Children point at their parent via `parent`. One entity, one fold, one write
+path. (The saga tier is ADR 0002, accepted 2026-09-07 and pending implementation —
+§12.)
+
+**Tiers.** A **leaf** (`task`, `bug`, `spike`) carries work and parents nothing. An
+**epic** owns the leaves of one deliverable. A **saga** owns two or more epics that
+share one outcome no single epic completes, plus any leaf that belongs to the outcome
+and to no epic — a spike that clears fog, the ADR that records the decision. Open a
+saga only when a second epic appears for the same outcome, never for one epic; a
+concern that cuts across epics owned elsewhere is a label. A saga whose children are
+all leaves is an epic with the wrong type. The standalone epic is the normal case.
+
+The **tier rule** fixes the shape of every parent edge:
+
+| Type | May sit under | May parent |
+|---|---|---|
+| `saga` | nothing | epics, leaves |
+| `epic` | a saga, nothing | leaves |
+| `task`, `bug`, `spike` | a saga, an epic, nothing | nothing |
+
+Depth is bounded by construction — `saga → epic → leaf`, and stop — so no cycle walk
+is needed: a saga is parentless and an epic sits only under a saga, which leaves a
+ticket naming itself as the only parent cycle the shape allows.
 
 Three constraints, cheap now and expensive later:
 
-- **One level of nesting.** `epic → task`, and stop. No tracker maps deeper cleanly,
-  and unbounded trees bring cycle detection and recursive rollups for little benefit.
-- **Epic status is derived, not stored.** An epic is `done` when its children are.
-  Storing it means closing a child cascades a write into the parent — the write
-  amplification pattern from 5.4.
+- **The tier rule is enforced at write time.** Every write that sets `type` or
+  `parent` — `rp new --parent`, a template's `parent` default, `rp set type=`, `rp set
+  parent=` — is checked once against the post-write shape (the ticket's new type, its
+  parent's type, its children's types) and rejected whole, exit 1, nothing appended,
+  when the result would break the table. The parent must resolve (`no such ticket:
+  <id>`). There is no automatic re-parenting: to demote an epic, move or drop its
+  children first. `rp set <id> parent=` with an empty value clears the parent; the
+  same form clears any nullable scalar. Messages name the conflict, in the house
+  style (lowercase, no trailing period, ids rendered with the display prefix):
+
+  ```
+  cannot set type=saga on RP-x: a saga has no parent (parent is RP-y)
+  cannot set type=epic on RP-x: an epic's parent must be a saga (parent RP-y is an epic)
+  cannot set type=task on RP-x: it has 3 children (RP-a, RP-b, RP-c)
+  cannot set type=epic on RP-x: an epic cannot parent an epic (RP-a, RP-b)
+  cannot set parent=RP-p on RP-x: a task cannot be a parent
+  cannot set parent=RP-p on RP-x: a saga has no parent
+  cannot set parent=RP-p on RP-x: an epic's parent must be a saga (RP-p is an epic)
+  cannot set parent=RP-x on RP-x: a ticket cannot be its own parent
+  ```
+
+  `rp doctor` reports what a union merge or an older binary let through (§10.1).
+- **The status of a parent with children is derived, never stored**, and shown on
+  every read path — `show`, `list`, `tree`, `ready`, the `--status` filter, text and
+  `--json` alike:
+  - `dropped` when every child is `dropped`;
+  - `done` when every child is **settled** (`done` or `dropped`) and at least one is
+    `done`;
+  - `open` otherwise.
+
+  An epic under a saga counts by its own derived status, so the rule composes through
+  both tiers. A childless parent keeps its stored status. Because the stored status
+  of a parent with children is never shown, no verb may set it: `close`, `drop`,
+  `claim` and `set status=` on such a parent are accepted only when the value equals
+  the derived status, and are then the idempotent no-op (exit 0); otherwise they are
+  rejected, exit 1, nothing appended, and nothing cascades — the write amplification
+  pattern from 5.4:
+
+  ```
+  cannot close RP-x: it has 2 open children (RP-a, RP-b)
+  cannot drop RP-x: it has 2 open children (RP-a, RP-b)
+  cannot set status=in_progress on RP-x: status is derived from its 3 children
+  ```
+
+  Rollup and blocking differ on purpose: a dropped child settles its parent, but a
+  dropped blocker does not unblock a dependent (§5.4). Rollup asks whether a set of
+  work is finished being worked; blocking asks whether a prerequisite was delivered.
 - **`parent` is the only structural field.** No `children[]`, and no `blocks[]` beside
   `blocked_by`. Both are denormalization: every edge edit would write to two tickets,
   and two branches adding dependencies would conflict on a ticket neither is working
-  on. Invert the graph at query time — microseconds at this scale.
+  on. Invert the graph at query time — microseconds at this scale. `rp tree` is that
+  inversion, downward from the root the caller names; `rp` surfaces no ancestry — a
+  leaf's saga is its epic's `parent`, two `show` calls away.
+
+**`rp tree <id>`** renders the whole subtree. Text: the root line, each child indented
+two spaces, each grandchild four; the line format is unchanged, every line shows the
+derived status, no connectors and no counts. JSON: `{root, children}`; an epic entry
+carries one extra key, `children`, an array of short tickets in `rp list` order (`[]`
+for an empty epic); a leaf entry carries no `children` key. `tree` on an epic is
+therefore byte-identical to the one-tier output. `rp list --parent <id>` matches the
+direct parent only and takes every filter (`--parent <saga> --type epic` lists a
+saga's epics); `tree` descends and takes none.
 
 **A plan is not a Rohrpost object at all.** Epics are durable structure; plans are the
 transient reasoning that produced them — an ordering, a rationale, rejected
@@ -437,7 +516,7 @@ rp init [--prefix ABC]                   scaffold .rohrpost/
 rp new "title" [--template bug] [-p 1]   create ticket
 rp ready [--limit N]                     unblocked, actionable work
 rp show <id> [--include body,deps,notes] ticket; defaults to summary + body
-rp tree <id>                             epic and its children
+rp tree <id>                             an epic or a saga and its subtree
 rp list [--status] [--label] [--parent] [--type] [--match]  query
 rp claim <id>                            → in_progress, stamps actor
 rp set <id> field=value ...              generic update (labels+=a,b / labels-=a)
@@ -460,8 +539,11 @@ runners invoke to find work, and it must be fast and small.
 ### 10.1 `rp doctor`
 
 Checks: log parses; no duplicate event ids after dedupe; every `blocked_by` and
-`parent` resolves; no dependency cycles; `.gitattributes` contains the merge and
-line-ending rules. Informational: how many legacy sync events (§5.2) the log carries.
+`parent` resolves; every `parent` edge keeps the tier rule (`tier_rule`, §5.5 — one
+finding listing each offender as `RP-x (task) parents RP-y`, `RP-x (epic) has parent
+RP-y (epic)`, `RP-x (saga) has parent RP-y`, `RP-x is its own parent`, read only over
+tickets whose references resolve); no dependency cycles; `.gitattributes` contains
+the merge and line-ending rules. Informational: how many legacy sync events (§5.2) the log carries.
 
 This is the one place the pneumatic metaphor is allowed out: *"3 tickets stuck in the
 tube for >14d"* is more memorable than "3 stale tickets", and nobody has to type it.
@@ -495,7 +577,7 @@ snapshot, no index and no staleness protocol**: every `rp` invocation folds the 
 |---|---|---|
 | **0** | Event log, fold, lock, ids, `new`/`ready`/`show`/`claim`/`set`/`close` | A runner can work a ticket end to end — **done** |
 | **1** | ~~Shadow store, three-way merge, GitHub provider, `sync`, `conflicts`~~ | Built, then removed in v0.2 (§8) |
-| **2** | Templates, `doctor`, `compact`, `stats` — **done**; sidecar bodies pending | Usable by someone who is not you |
+| **2** | Templates, `doctor`, `compact`, `stats` — **done**; sidecar bodies and the saga tier (ADR 0002) pending | Usable by someone who is not you |
 | **2.5** | Nothing. Resist adding a listener here | — |
 | **3** | Batches as first-class, sidecar bodies | Only when volume demands it |
 
@@ -524,7 +606,8 @@ phase 0 has run against real work.
    would not otherwise carry, the boundary in 3.1 is wrong and planning belongs with
    the bus instead.
 6. **Are `type` values right?** `task | bug | spike | epic` is a guess. Types are cheap
-   to add and awkward to remove.
+   to add and awkward to remove. *Amended (2026-09-07):* `saga` added as the fifth
+   type and the tier above epic — ADR 0002, §5.5.
 
 ### 13.1 What is actually load-bearing
 
