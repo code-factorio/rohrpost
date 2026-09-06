@@ -19,3 +19,8 @@ _Avoid_: feature, milestone, project
 A ticket that owns two or more epics that share one outcome no single epic completes,
 plus any leaf that belongs to the outcome and to no epic. The top tier: a saga never owns a saga.
 _Avoid_: initiative, theme, label, view, project
+
+**Tier rule**:
+The shape every parent edge must keep: a saga sits under nothing, an epic sits under a saga
+or nothing, a leaf sits under a saga, an epic, or nothing.
+_Avoid_: hierarchy check, depth limit, nesting constraint
