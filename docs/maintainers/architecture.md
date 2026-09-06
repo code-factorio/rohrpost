@@ -23,7 +23,7 @@ src/
   toml.rs     the TOML subset config.toml and templates use
   json.rs     Json value (ordered objects, interned keys), parser, compact + pretty writers
   store.rs    append_event() under File::lock + append mode; read_events(_lenient)
-  fold.rs     fold(): dedupe -> sort -> replay -> Ticket; derived status, readiness, cycles;
+  fold.rs     fold(): dedupe -> sort -> replay -> Ticket -> parent rollup; readiness, cycles;
               the --json shape (full / short)
   api.rs      the ONE write path: create/set/claim/close/drop/comment; templates; queries
   doctor.rs   rp doctor: isolated, degrading checks
@@ -91,8 +91,14 @@ so the decision can be revisited with data.
 
 ### Derived state (never stored)
 
-- `ready` — `is_ready()`: `open`, non-epic, every `blocked_by` done.
-- epic status — `derive_status()`: `done` when all children done, else `open`.
+- `ready` — `is_ready()`: `open`, a leaf (not an epic or a saga), every `blocked_by` done.
+- parent status — `apply_derived_status()` at the end of `fold()`: an epic or a saga with
+  children carries `dropped` when all are dropped, `done` when all are settled and one
+  is done, else `open`, composing `saga -> epic -> leaf`; its stored status never
+  surfaces, and `api` refuses to write it (`close`/`drop`/`claim`/`set status=` on a
+  parent with children are no-ops or errors, never cascades).
+- the tier rule — `api::tier_conflict()` checks the post-write shape of every
+  `type`/`parent` write; `doctor` re-checks the folded log (`tier_rule`).
 - `last_close_reason` — the most recent terminal-status event's `reason`.
 - `created`/`updated` — first / last event ts for the ticket.
 

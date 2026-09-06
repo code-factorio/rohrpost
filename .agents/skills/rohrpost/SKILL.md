@@ -89,7 +89,7 @@ and still exits `0`. Retry freely.
 EOF
 ```
 
-Types are `task|bug|spike|epic`; `-p 0..4` runs 0 highest to 4 lowest; `--label`
+Types are `task|bug|spike|epic|saga`; `-p 0..4` runs 0 highest to 4 lowest; `--label`
 and `--blocked-by` repeat. Multi-line bodies go through `--body-file` (a path,
 or `-` for stdin). In bash, pipe a heredoc into `-` as above; in PowerShell,
 pipe a here-string:
@@ -104,8 +104,28 @@ pipe a here-string:
 `--template <name>` loads defaults from `.rohrpost/templates/<name>.toml`, and
 explicit flags override them. Every ticket starts `open`.
 
-An **epic** is `--type epic`; children point at it with `--parent`, one level
-deep. Epic status is derived from its children.
+Open an epic when a deliverable needs more than one leaf. Open a saga only when a
+second epic appears for the same outcome: create the saga, then set both epics'
+parent to it. Whoever creates the second epic opens the saga, agent or human. Never
+open a saga for one epic, or for a concern that cuts across epics owned elsewhere;
+that is a label. A leaf goes under the epic it belongs to. A leaf that belongs to
+the outcome and to no epic, such as a spike that clears fog or the ADR that records
+the decision, goes under the saga. A saga whose children are all leaves is an epic
+with the wrong type.
+
+```bash
+<rohrpost-skill>/scripts/rohrpost new "Passkey sign-in" --type epic --label auth --json      # second epic for the outcome: the saga appears now
+<rohrpost-skill>/scripts/rohrpost new "Passwordless sign-in" --type saga --json              # → RP-7k2m9q
+<rohrpost-skill>/scripts/rohrpost set RP-3f8xa1 parent=RP-7k2m9q --json                      # the epic that already existed
+<rohrpost-skill>/scripts/rohrpost set RP-b6nd4z parent=RP-7k2m9q --json
+<rohrpost-skill>/scripts/rohrpost new "Spike: one session record for both flows" --type spike --parent RP-7k2m9q --json   # belongs to the outcome, to no epic
+```
+
+The shape is `saga → epic → leaf`, and stop: a saga sits under nothing, an epic
+under a saga or nothing, a leaf under any of them or nothing. A `new --parent` or a
+`set type=`/`parent=` that would break it is refused whole, exit 1, with the conflict
+named (`cannot set type=task on RP-x: it has 3 children (...)`); move or drop the
+children first.
 
 ## Updating fields
 
@@ -116,7 +136,8 @@ deep. Epic status is derived from its children.
 ```
 
 Scalars (`title`, `type`, `status`, `priority`, `assignee`, `parent`, `body`)
-take `=`. The set fields (`labels`, `blocked_by`) take `+=` / `-=` so two runners
+take `=`; an empty value clears a nullable one (`parent=` detaches the ticket
+from its epic or saga, `assignee=` and `body=` likewise). The set fields (`labels`, `blocked_by`) take `+=` / `-=` so two runners
 editing at once compose instead of clobbering each other. `body=` replaces the
 whole body: read it with `<rohrpost-skill>/scripts/rohrpost show <id> --json`,
 edit, write it back whole — `--body-file` works here too for multi-line text.
@@ -128,9 +149,17 @@ terminal `dropped`. `claim`, `close` and `drop` are the dedicated transitions;
 use `<rohrpost-skill>/scripts/rohrpost set <id> status=review|waiting --json` for
 the rest.
 
-`ready` is **derived, never set**: a ticket is ready when it is `open`, not an
-epic, and every `blocked_by` ticket is `done`. Closing a blocker unblocks its
-dependents with no extra write. A **dropped blocker keeps its dependents
+`ready` is **derived, never set**: a ticket is ready when it is `open`, a leaf
+(not an epic, not a saga), and every `blocked_by` ticket is `done`. Closing a
+blocker unblocks its dependents with no extra write.
+
+The status of an epic or a saga with children is **derived, never written**, on
+every read path: `dropped` when every child is dropped, `done` when every child is
+settled (`done` or `dropped`) and one is `done`, `open` otherwise; an epic counts
+toward its saga by its own derived status. `close`, `drop`, `claim` and
+`set status=` on such a parent are refused unless they equal the derived status
+(then they are the usual no-op): `cannot close RP-x: it has 2 open children (RP-a,
+RP-b)`. Close the leaves; the parents follow. A **dropped blocker keeps its dependents
 blocked** — when a blocker is abandoned, cut the edge explicitly with
 `<rohrpost-skill>/scripts/rohrpost set <dependent> blocked_by-=<id> --json`.
 
@@ -140,7 +169,7 @@ blocked** — when a blocker is abandoned, cut the edge explicitly with
 <rohrpost-skill>/scripts/rohrpost show <id> --json                         # everything: body, comments, _fieldts
 <rohrpost-skill>/scripts/rohrpost list --status open --label auth --json   # filters compose
 <rohrpost-skill>/scripts/rohrpost list --match "token refresh" --json      # case-insensitive substring of the title
-<rohrpost-skill>/scripts/rohrpost tree <epic-id> --json                    # an epic and its direct children
+<rohrpost-skill>/scripts/rohrpost tree <epic-or-saga-id> --json            # the whole subtree; an epic entry nests a `children` array, a leaf entry has none
 <rohrpost-skill>/scripts/rohrpost comments <id> --json                     # the note thread alone
 <rohrpost-skill>/scripts/rohrpost log <id> --json                          # the raw events behind the fold
 ```
@@ -150,6 +179,31 @@ blocked** — when a blocker is abandoned, cut the edge explicitly with
 on `--status`, `--label`, `--type`, `--parent` and `--match`, and derived
 statuses are queryable (`--status ready`). Matching is a filter, never an
 identity — a title is a search key, never an identity.
+
+`tree --json` on a saga, short shape trimmed to what matters (`...` stands for
+`priority`, `blocked_by`, `labels`, `assignee`, `last_close_reason`, `created`,
+`updated`); an empty epic carries `"children": []`:
+
+```json
+{
+  "root": { "id": "RP-7k2m9q", "type": "saga", "status": "open", "title": "Passwordless sign-in", "parent": null, ... },
+  "children": [
+    { "id": "RP-3f8xa1", "type": "epic", "status": "open", "title": "Magic-link sign-in", "parent": "RP-7k2m9q", ...,
+      "children": [
+        { "id": "RP-c1q7we", "type": "task", "status": "done", "title": "Send the sign-in mail", "parent": "RP-3f8xa1", ... },
+        { "id": "RP-x9r2ht", "type": "task", "status": "in_progress", "title": "Verify the link token", "parent": "RP-3f8xa1", ... }
+      ] },
+    { "id": "RP-b6nd4z", "type": "epic", "status": "open", "title": "Passkey sign-in", "parent": "RP-7k2m9q", ...,
+      "children": [
+        { "id": "RP-m5t8vk", "type": "task", "status": "open", "title": "Log every passkey enrolment", "parent": "RP-b6nd4z", ... }
+      ] },
+    { "id": "RP-2wjy6e", "type": "spike", "status": "open", "title": "Spike: one session record for both flows", "parent": "RP-7k2m9q", ... }
+  ]
+}
+```
+
+`rp` keeps no ancestry: a leaf's epic is its `parent`, the saga is the epic's
+`parent`, so two `show` calls reach it.
 
 Ids come back rendered with the repo's display prefix (`RP-a1b2c3`); Rohrpost
 accepts that form or the bare `a1b2c3` on input. The prefix is display-only, so

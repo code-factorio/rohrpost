@@ -25,8 +25,8 @@ failure (no such ticket, bad status), `2` usage error.
 ## Conventions
 
 - **Create a ticket**: `rp new "<title>" --body "<markdown>" --json`. Add `--type
-  task|bug|spike|epic` (default `task`), `-p 0..4` (0 highest), `--label` (repeatable),
-  `--blocked-by <id>` (repeatable), `--parent <epic-id>`.
+  task|bug|spike|epic|saga` (default `task`), `-p 0..4` (0 highest), `--label` (repeatable),
+  `--blocked-by <id>` (repeatable), `--parent <epic-or-saga-id>`.
 - **Read a ticket**: `rp show <id> --include body,deps,notes --json`. Notes are the comment
   thread; `rp comments <id> --json` fetches them alone.
 - **List tickets**: `rp list --status open --label <label> --json`. Also filters on
@@ -34,11 +34,14 @@ failure (no such ticket, bad status), `2` usage error.
   title. Filters compose, so `rp list --match refresh --status open --json` narrows both
   ways. There is no separate search command: matching is a filter, and a title is a search
   key, never an identity.
-- **Find work**: `rp ready --json` — open, unblocked, non-epic tickets, highest priority
+- **Find work**: `rp ready --json` — open, unblocked leaves (no epics, no sagas), highest priority
   first. This is the queue an agent picks from.
 - **Comment**: `rp comment <id> "<note>"`. Notes are local to the repo.
 - **Apply / remove labels**: `rp set <id> labels+=a,b` / `rp set <id> labels-=a`. Set fields
-  use `+=` / `-=` so two concurrent runners compose instead of clobbering.
+  use `+=` / `-=` so two concurrent runners compose instead of clobbering. An empty value
+  clears a nullable scalar: `rp set <id> parent=` detaches a ticket from its epic or saga.
+- **Ancestry**: `rp` surfaces none. A leaf's epic is its `parent`, the saga is the epic's
+  `parent`; two `show` calls reach it (the tier rule bounds the tree at saga → epic → leaf).
 - **Update any scalar field**: `rp set <id> status=review priority=1` (`title`, `type`,
   `status`, `priority`, `assignee`, `parent`, `body`).
 - **Claim**: `rp claim <id>` — moves to `in_progress` and stamps the actor as assignee.
@@ -51,8 +54,13 @@ still exits `0`.
 
 `open` → `in_progress` → `review` → `done`, with `waiting` for "stalled on a human" and
 `dropped` as the other terminal. `ready` is **derived, never set**: a ticket is ready when
-it is `open`, not an epic, and every `blocked_by` ticket is `done`. Closing a blocker
-unblocks its dependents with no extra write.
+it is `open`, a leaf (not an epic or a saga), and every `blocked_by` ticket is `done`.
+Closing a blocker unblocks its dependents with no extra write.
+
+The status of an epic or a saga with children is derived from them on every read path and
+never written: `close`, `drop`, `claim` and `set status=` on such a parent are refused
+unless they equal the derived status. Close the leaves; the parents follow. `rp doctor`
+reports a `parent` edge that breaks the tier rule (`tier_rule`).
 
 Note the asymmetry: a **`dropped` blocker does not unblock** its dependents. If a blocker
 is abandoned, remove the edge explicitly with `rp set <dependent> blocked_by-=<id>`.

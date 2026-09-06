@@ -262,8 +262,7 @@ excludes epics and sagas by type, children or not.
 
 **An epic is a ticket** with `type: epic`, and **a saga is a ticket** with `type:
 saga`. Children point at their parent via `parent`. One entity, one fold, one write
-path. (The saga tier is ADR 0002, accepted 2026-09-07 and pending implementation —
-§12.)
+path. (The saga tier is ADR 0002, accepted 2026-09-07.)
 
 **Tiers.** A **leaf** (`task`, `bug`, `spike`) carries work and parents nothing. An
 **epic** owns the leaves of one deliverable. A **saga** owns two or more epics that
@@ -577,7 +576,7 @@ snapshot, no index and no staleness protocol**: every `rp` invocation folds the 
 |---|---|---|
 | **0** | Event log, fold, lock, ids, `new`/`ready`/`show`/`claim`/`set`/`close` | A runner can work a ticket end to end — **done** |
 | **1** | ~~Shadow store, three-way merge, GitHub provider, `sync`, `conflicts`~~ | Built, then removed in v0.2 (§8) |
-| **2** | Templates, `doctor`, `compact`, `stats` — **done**; sidecar bodies and the saga tier (ADR 0002) pending | Usable by someone who is not you |
+| **2** | Templates, `doctor`, `compact`, `stats`, the saga tier (ADR 0002) — **done**; sidecar bodies pending | Usable by someone who is not you |
 | **2.5** | Nothing. Resist adding a listener here | — |
 | **3** | Batches as first-class, sidecar bodies | Only when volume demands it |
 

@@ -73,7 +73,7 @@ rp new "Design notes" --body-file notes.md
 rp new "Handle auth failures" --template bug
 ```
 
-Flags: `--type task|bug|spike|epic`, `-p/--priority 0..4` (0 highest), `--label`
+Flags: `--type task|bug|spike|epic|saga`, `-p/--priority 0..4` (0 highest), `--label`
 (repeatable), `--blocked-by` (repeatable), `--parent`, `--assignee`, `--body`.
 `--template NAME` loads defaults from `.rohrpost/templates/NAME.toml`; command-line
 values override template defaults. A template may use top-level fields or a
@@ -113,7 +113,7 @@ yields an empty body.
 ### Find work
 
 ```bash
-rp ready                  # the actionable queue: open, unblocked, non-epic
+rp ready                  # the actionable queue: open, unblocked leaves (no epics, no sagas)
 rp ready --limit 5
 rp ready --json           # machine-readable
 ```
@@ -134,7 +134,9 @@ rp drop <id> --reason "wontfix"
 
 `set` is the generic field update. Set fields (`labels`, `blocked_by`) use `+=`
 (add) and `-=` (remove) so concurrent edits from two runners compose instead of
-clobbering each other.
+clobbering each other. An empty value clears a nullable scalar: `rp set <id>
+parent=` detaches a ticket from its epic or saga, and `assignee=` and `body=`
+work the same way.
 
 All mutations are **idempotent**: re-running `rp close <id>` on an already-done
 ticket is a no-op (it appends nothing), not an error.
@@ -145,7 +147,7 @@ ticket is a no-op (it appends nothing), not an error.
 rp show <id>                          # summary + body
 rp show <id> --include body,deps,notes,fieldts
 rp comments <id>                      # all local notes
-rp tree <epic-id>                     # an epic and its direct children
+rp tree <epic-or-saga-id>             # the whole subtree, every line with its derived status
 rp list --status open --label auth    # query
 rp list --status ready                # derived statuses are queryable
 rp list --match "token refresh"       # case-insensitive substring of the title
@@ -166,9 +168,96 @@ rp log [<id>]                         # raw event history
 | `done`        | terminal — completed                             |
 | `dropped`     | terminal — abandoned                             |
 
-Types: `task`, `bug`, `spike`, `epic`. An **epic** is a ticket with `type: epic`;
-children point at it via `parent` (one level of nesting). Epic status is derived
-— an epic is `done` when its children are.
+Types: `task`, `bug`, `spike`, `epic`, `saga`. The first three are **leaves**: they
+carry work and parent nothing. An **epic** and a **saga** own children through the
+children's `parent` field, and a parent with children shows a status derived from
+them instead of its own — see [Epics and sagas](#epics-and-sagas).
+
+---
+
+## Epics and sagas
+
+Open an epic when a deliverable needs more than one leaf. Open a saga only when a
+second epic appears for the same outcome: create the saga, then set both epics'
+parent to it. Whoever creates the second epic opens the saga, agent or human. Never
+open a saga for one epic, or for a concern that cuts across epics owned elsewhere;
+that is a label. A leaf goes under the epic it belongs to. A leaf that belongs to
+the outcome and to no epic, such as a spike that clears fog or the ADR that records
+the decision, goes under the saga. A saga whose children are all leaves is an epic
+with the wrong type.
+
+A worked example. Day one is the normal case: one deliverable, one epic.
+
+```bash
+rp new "Magic-link sign-in" --type epic --label auth                                  # → RP-3f8xa1
+rp new "Send the sign-in mail" --parent RP-3f8xa1 --label auth                        # → RP-c1q7we
+rp new "Verify the link token" --parent RP-3f8xa1 --label auth --blocked-by RP-c1q7we # → RP-x9r2ht
+```
+
+Weeks later a second epic for the same outcome appears. Passwordless sign-in is not
+done when magic links ship, and not done when passkeys ship. That is the moment a
+saga exists, and the actor creating the second epic opens it:
+
+```bash
+rp new "Passkey sign-in" --type epic --label auth                                     # → RP-b6nd4z
+rp new "Passwordless sign-in" --type saga                                             # → RP-7k2m9q
+rp set RP-3f8xa1 parent=RP-7k2m9q
+rp set RP-b6nd4z parent=RP-7k2m9q
+```
+
+Neither epic is re-typed or touched otherwise. Work that belongs to the outcome but
+to neither epic goes directly under the saga:
+
+```bash
+rp new "Spike: one session record for both flows" --type spike --parent RP-7k2m9q     # → RP-2wjy6e
+```
+
+A concern that cuts across the epics is a label, never a third tier. Audit logging
+touches both flows, so the leaves that carry it get `audit`:
+
+```bash
+rp new "Log every passkey enrolment" --parent RP-b6nd4z --label auth --label audit    # → RP-m5t8vk
+rp set RP-c1q7we labels+=audit
+```
+
+`rp tree` on the saga renders the whole subtree, two levels deep, every line carrying
+the derived status:
+
+```
+RP-7k2m9q  [open]  saga  p2  Passwordless sign-in
+  RP-3f8xa1  [open]  epic  p2  Magic-link sign-in
+    RP-c1q7we  [done]  task  p2  Send the sign-in mail
+    RP-x9r2ht  [in_progress]  task  p2  Verify the link token
+  RP-b6nd4z  [open]  epic  p2  Passkey sign-in
+    RP-m5t8vk  [open]  task  p2  Log every passkey enrolment
+  RP-2wjy6e  [open]  spike  p2  Spike: one session record for both flows
+```
+
+The status of the saga and of both epics is **derived, never written**: `dropped`
+when every child is dropped, `done` when every child is settled (`done` or
+`dropped`) and at least one is `done`, `open` otherwise, and an epic counts toward
+its saga by its own derived status. Closing the last leaf turns every line above it
+`done` with no further command, and a status write on a parent with open children
+is refused (the no-op that equals the derived status is accepted, as every no-op is):
+
+```
+$ rp close RP-7k2m9q
+rp: cannot close RP-7k2m9q: it has 3 open children (RP-3f8xa1, RP-b6nd4z, RP-2wjy6e)
+```
+
+The shape is bounded: `saga → epic → leaf`, and stop. A saga sits under nothing, an
+epic under a saga or nothing, a leaf under a saga, an epic, or nothing. Every write
+that sets `type` or `parent` is checked against the shape it would leave behind and
+refused whole when that breaks the rule (`cannot set type=task on RP-x: it has 3
+children (...)`); to demote an epic, move or drop its children first. `rp` keeps no
+ancestry: a leaf's epic is its `parent`, the saga is the epic's `parent`, so two
+`rp show` calls reach it.
+
+Three things that are **not** a saga:
+
+- One epic, however large. It stays a standalone epic.
+- "Windows support" across three epics owned elsewhere. That is the label `windows`.
+- A saga whose children are all leaves. That is an epic with the wrong type.
 
 ---
 
@@ -187,7 +276,7 @@ Every event records who did it under one of two namespaces:
 ## Integrity and maintenance
 
 ```bash
-rp doctor        # log parses; no dup ids; refs resolve; no cycles; gitattributes rules
+rp doctor        # log parses; no dup ids; refs resolve; tier rule; no cycles; gitattributes rules
 rp compact       # archive tickets terminal for >90d; main branch only
 rp stats         # body/line size distributions, cold fold timing
 ```
@@ -218,7 +307,9 @@ Every command takes `--json` and returns structured output. Tickets render as:
 ```
 
 `rp list`/`rp ready`/`rp tree`'s children use a short shape without `body`,
-`comments` and `_fieldts`. Exit codes: `0` success, `1` a domain failure (no such
+`comments` and `_fieldts`; in `rp tree` an epic or saga entry carries one extra
+key, `children`, holding its own children in the same shape (`[]` when it has
+none), and a leaf entry carries no such key. Exit codes: `0` success, `1` a domain failure (no such
 ticket, bad status, …), `2` a usage error. `NO_COLOR` and `CLICOLOR=0` are
 respected, and colour is off whenever stdout is not a terminal.
 
