@@ -8,9 +8,11 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::config;
 use crate::error::Result;
 use crate::events::Event;
-use crate::fold::{find_cycle, fold};
+use crate::fold::{Tickets, find_cycle, fold, is_parent_type};
+use crate::ids::render_id;
 use crate::json::{self, Json};
 use crate::paths;
 use crate::store;
@@ -105,6 +107,12 @@ pub fn run(rohrpost_dir: &Path) -> Result<Vec<Finding>> {
     });
 
     findings.push(if log_ok {
+        check_tier_rule(rohrpost_dir, &by_id)
+    } else {
+        skipped("tier_rule")
+    });
+
+    findings.push(if log_ok {
         match find_cycle(&by_id) {
             Some(cycle) => Finding::new(
                 "no_cycles",
@@ -154,6 +162,56 @@ fn check_duplicate_ids(events: &[Event]) -> Finding {
             "no_duplicate_ids",
             false,
             format!("{} duplicate event id(s) after merge", dupes.len()),
+        )
+    }
+}
+
+/// Every resolving `parent` edge keeps the tier rule (§5.5): what a union merge
+/// or an older binary let past the write-time check. Offenders are rendered
+/// with the display prefix in the §10.1 forms.
+fn check_tier_rule(rohrpost_dir: &Path, by_id: &Tickets) -> Finding {
+    let prefix = config::load_config_or_default(rohrpost_dir).prefix;
+    let rend = |id: &str| render_id(&prefix, id);
+    let mut offenders: Vec<String> = Vec::new();
+    for t in by_id.values() {
+        let Some(parent) = t.parent.as_deref().and_then(|p| by_id.get(p)) else {
+            continue;
+        };
+        if parent.id == t.id {
+            offenders.push(format!("{} is its own parent", rend(&t.id)));
+        } else if t.kind == "saga" {
+            offenders.push(format!(
+                "{} (saga) has parent {}",
+                rend(&t.id),
+                rend(&parent.id)
+            ));
+        } else if !is_parent_type(&parent.kind) {
+            offenders.push(format!(
+                "{} ({}) parents {}",
+                rend(&parent.id),
+                parent.kind,
+                rend(&t.id)
+            ));
+        } else if t.kind == "epic" && parent.kind != "saga" {
+            offenders.push(format!(
+                "{} (epic) has parent {} ({})",
+                rend(&t.id),
+                rend(&parent.id),
+                parent.kind
+            ));
+        }
+    }
+    if offenders.is_empty() {
+        Finding::new("tier_rule", true, "every parent edge keeps the tier rule")
+    } else {
+        Finding::new(
+            "tier_rule",
+            false,
+            format!(
+                "{} parent edge(s) break the tier rule: {}",
+                offenders.len(),
+                offenders.join(", ")
+            ),
         )
     }
 }

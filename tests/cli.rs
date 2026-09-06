@@ -1178,3 +1178,367 @@ fn concurrent_writers_serialise_cleanly() {
     );
     assert!(repo.ok(&["doctor"]).contains("all clear"));
 }
+
+// ---------------------------------------------------------------------------
+// The saga tier (spec §5.5, ADR 0002).
+// ---------------------------------------------------------------------------
+/// A `saga -> epic -> leaf` fixture: an epic with two leaves, an empty epic,
+/// and a spike hanging off the saga itself.
+struct Saga {
+    saga: String,
+    epic: String,
+    empty: String,
+    leaf_a: String,
+    leaf_b: String,
+    spike: String,
+}
+
+fn seed_saga(repo: &Repo) -> Saga {
+    let saga = repo.new_ticket("Passwordless sign-in", &["--type", "saga"]);
+    let epic = repo.new_ticket("Magic-link sign-in", &["--type", "epic", "--parent", &saga]);
+    let empty = repo.new_ticket("Passkey sign-in", &["--type", "epic", "--parent", &saga]);
+    let leaf_a = repo.new_ticket("Send the sign-in mail", &["--parent", &epic, "-p", "1"]);
+    let leaf_b = repo.new_ticket("Verify the link token", &["--parent", &epic]);
+    let spike = repo.new_ticket(
+        "Spike: one session record",
+        &["--type", "spike", "--parent", &saga],
+    );
+    Saga {
+        saga,
+        epic,
+        empty,
+        leaf_a,
+        leaf_b,
+        spike,
+    }
+}
+
+fn log_lines(repo: &Repo) -> usize {
+    std::fs::read_to_string(repo.rohrpost().join("log.jsonl"))
+        .unwrap()
+        .lines()
+        .count()
+}
+
+#[test]
+fn tier_rule_rejects_every_broken_shape_at_write_time() {
+    let repo = Repo::new();
+    let s = seed_saga(&repo);
+    let lines = log_lines(&repo);
+
+    // `rp new --parent`: the parent must resolve and accept the new type.
+    for (args, message) in [
+        (
+            vec!["new", "x", "--type", "saga", "--parent", &s.saga],
+            format!(
+                "cannot create a saga under TST-{}: a saga has no parent",
+                s.saga
+            ),
+        ),
+        (
+            vec!["new", "x", "--type", "epic", "--parent", &s.epic],
+            format!(
+                "cannot create an epic under TST-{0}: an epic's parent must be a saga (TST-{0} is an epic)",
+                s.epic
+            ),
+        ),
+        (
+            vec!["new", "x", "--parent", &s.leaf_a],
+            format!(
+                "cannot create a task under TST-{}: a task cannot be a parent",
+                s.leaf_a
+            ),
+        ),
+        (
+            vec!["new", "x", "--parent", "zzzzzz"],
+            "no such ticket: TST-zzzzzz".to_string(),
+        ),
+    ] {
+        let err = repo.fails(&args, 1);
+        assert!(err.contains(&message), "rp {args:?}: {err}");
+    }
+
+    // `rp set type=` / `parent=`: checked once against the post-write shape;
+    // the ids in a message carry the display prefix.
+    for (args, message) in [
+        (
+            vec!["set", &s.epic, "type=saga"],
+            format!(
+                "cannot set type=saga on TST-{}: a saga has no parent (parent is TST-{})",
+                s.epic, s.saga
+            ),
+        ),
+        (
+            vec!["set", &s.epic, "type=task"],
+            format!(
+                "cannot set type=task on TST-{}: it has 2 children (TST-{}, TST-{})",
+                s.epic, s.leaf_a, s.leaf_b
+            ),
+        ),
+        (
+            vec!["set", &s.saga, "type=epic"],
+            format!(
+                "cannot set type=epic on TST-{}: an epic cannot parent an epic (TST-{}, TST-{})",
+                s.saga, s.epic, s.empty
+            ),
+        ),
+    ] {
+        let err = repo.fails(&args, 1);
+        assert!(err.contains(&message), "rp {args:?}: {err}");
+    }
+    for (target, parent, message) in [
+        (
+            &s.leaf_b,
+            &s.leaf_a,
+            "a task cannot be a parent".to_string(),
+        ),
+        (&s.saga, &s.epic, "a saga has no parent".to_string()),
+        (
+            &s.epic,
+            &s.empty,
+            format!(
+                "an epic's parent must be a saga (TST-{} is an epic)",
+                s.empty
+            ),
+        ),
+        (
+            &s.leaf_a,
+            &s.leaf_a,
+            "a ticket cannot be its own parent".to_string(),
+        ),
+    ] {
+        let assignment = format!("parent={parent}");
+        let err = repo.fails(&["set", target, &assignment], 1);
+        assert!(
+            err.contains(&format!(
+                "cannot set parent=TST-{parent} on TST-{target}: {message}"
+            )),
+            "rp set {target} {assignment}: {err}"
+        );
+    }
+    assert!(
+        repo.fails(&["set", &s.leaf_a, "parent=zzzzzz"], 1)
+            .contains("no such ticket: TST-zzzzzz")
+    );
+    assert_eq!(log_lines(&repo), lines, "a rejected write appends nothing");
+
+    // A multi-field set is judged on where it ends up, not on each field alone.
+    let loose = repo.new_ticket("loose", &[]);
+    let under_saga = format!("parent={}", s.saga);
+    let under_epic = format!("parent={}", s.epic);
+    assert!(
+        repo.fails(&["set", &loose, "type=epic", &under_epic], 1)
+            .contains("an epic's parent must be a saga"),
+        "type=epic under an epic ends invalid"
+    );
+    let t = repo.json(&["set", &loose, "type=epic", &under_saga]);
+    assert_eq!(field(&t, "type").as_str(), Some("epic"));
+    assert_eq!(
+        field(&t, "parent").as_str(),
+        Some(format!("TST-{}", s.saga).as_str())
+    );
+
+    // A template's parent default meets the same check; `parent=` clears.
+    repo.write(
+        ".rohrpost/templates/under-leaf.toml",
+        &format!("parent = \"{}\"\n", s.leaf_a),
+    );
+    assert!(
+        repo.fails(&["new", "t", "--template", "under-leaf"], 1)
+            .contains("a task cannot be a parent")
+    );
+    let t = repo.json(&["set", &loose, "parent="]);
+    assert_eq!(field(&t, "parent"), &Json::Null);
+    assert!(
+        repo.ok(&["set", &loose, "parent="])
+            .starts_with("No change")
+    );
+}
+
+#[test]
+fn status_writes_on_a_parent_with_children_are_rejected_unless_no_ops() {
+    let repo = Repo::new();
+    let s = seed_saga(&repo);
+    let lines = log_lines(&repo);
+
+    let err = repo.fails(&["close", &s.saga], 1);
+    assert!(
+        err.contains(&format!(
+            "cannot close TST-{}: it has 3 open children (TST-{}, TST-{}, TST-{})",
+            s.saga, s.epic, s.empty, s.spike
+        )),
+        "{err}"
+    );
+    assert!(
+        repo.fails(&["drop", &s.epic], 1)
+            .contains("it has 2 open children")
+    );
+    assert!(repo.fails(&["claim", &s.epic], 1).contains(&format!(
+        "cannot claim TST-{}: status is derived from its 2 children",
+        s.epic
+    )));
+    assert!(
+        repo.fails(&["set", &s.epic, "status=review"], 1)
+            .contains(&format!(
+                "cannot set status=review on TST-{}: status is derived",
+                s.epic
+            ))
+    );
+    assert_eq!(
+        log_lines(&repo),
+        lines,
+        "nothing appended, nothing cascaded"
+    );
+
+    // Settling the leaves settles the epic; the saga waits for the rest.
+    repo.ok(&["close", &s.leaf_a]);
+    repo.ok(&["drop", &s.leaf_b]);
+    let epic = repo.json(&["show", &s.epic]);
+    assert_eq!(
+        field(&epic, "status").as_str(),
+        Some("done"),
+        "a dropped child settles"
+    );
+    assert_eq!(
+        ids(&repo.json(&["list", "--status", "done", "--type", "epic"])),
+        vec![s.epic.clone()],
+        "the --status filter and --json agree on the derived status"
+    );
+    assert!(
+        repo.ok(&["close", &s.epic]).starts_with("Already closed"),
+        "the no-op is accepted"
+    );
+    assert!(
+        repo.fails(&["drop", &s.epic], 1)
+            .contains("status is derived from its 2 children")
+    );
+    assert_eq!(
+        field(&repo.json(&["show", &s.saga]), "status").as_str(),
+        Some("open")
+    );
+
+    // A childless parent keeps its stored status, and sagas never enter the queue.
+    repo.ok(&["close", &s.empty]);
+    assert_eq!(
+        field(&repo.json(&["show", &s.empty]), "status").as_str(),
+        Some("done")
+    );
+    assert_eq!(ids(&repo.json(&["ready"])), vec![s.spike.clone()]);
+    repo.ok(&["drop", &s.spike]);
+    assert_eq!(
+        field(&repo.json(&["show", &s.saga]), "status").as_str(),
+        Some("done")
+    );
+}
+
+#[test]
+fn tree_renders_the_whole_subtree_in_text_and_json() {
+    let repo = Repo::new();
+    let s = seed_saga(&repo);
+    repo.ok(&["close", &s.leaf_a]);
+
+    let tree = repo.json(&["tree", &s.saga]);
+    assert_eq!(field(field(&tree, "root"), "type").as_str(), Some("saga"));
+    let children = field(&tree, "children").as_array().unwrap();
+    assert_eq!(
+        children.iter().map(bare).collect::<Vec<_>>(),
+        vec![s.epic.clone(), s.empty.clone(), s.spike.clone()],
+        "rp list order"
+    );
+    let (epic, empty, spike) = (&children[0], &children[1], &children[2]);
+    assert_eq!(
+        ids(field(epic, "children")),
+        vec![s.leaf_a.clone(), s.leaf_b.clone()]
+    );
+    assert_eq!(
+        field(empty, "children").as_array().unwrap().len(),
+        0,
+        "an empty epic carries []"
+    );
+    assert!(
+        spike.get("children").is_none(),
+        "a leaf entry carries no children key"
+    );
+    assert!(
+        field(epic, "children").as_array().unwrap()[0]
+            .get("children")
+            .is_none()
+    );
+    assert!(
+        field(epic, "children").as_array().unwrap()[0]
+            .get("body")
+            .is_none(),
+        "short shape"
+    );
+
+    let text = repo.ok(&["tree", &s.saga]);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 6);
+    assert!(lines[0].starts_with(&format!("TST-{}  [open]  saga", s.saga)));
+    assert!(lines[1].starts_with(&format!("  TST-{}  [open]  epic", s.epic)));
+    assert!(lines[2].starts_with(&format!("    TST-{}  [done]  task", s.leaf_a)));
+    assert!(lines[3].starts_with(&format!("    TST-{}  [open]  task", s.leaf_b)));
+    assert!(lines[4].starts_with(&format!("  TST-{}  [open]  epic", s.empty)));
+    assert!(lines[5].starts_with(&format!("  TST-{}  [open]  spike", s.spike)));
+
+    // On an epic root the one-tier shape is unchanged: no `children` key anywhere below.
+    let tree = repo.json(&["tree", &s.epic]);
+    assert!(
+        field(&tree, "children")
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c.get("children").is_none())
+    );
+    assert_eq!(repo.ok(&["tree", &s.epic]).lines().count(), 3);
+}
+
+#[test]
+fn doctor_reports_every_tier_rule_offender() {
+    let repo = Repo::new();
+    let create = |n: u8, id: &str, kind: &str, parent: &str| {
+        event_line(
+            &format!("01AAAAAAAAAAAAAAAAAAAAAAA{n}"),
+            &format!("2026-01-01T00:00:0{n}.000Z"),
+            id,
+            "create",
+            &format!(r#","set":{{"title":"{id}","type":"{kind}","parent":"{parent}"}}"#),
+        )
+    };
+    let lines = [
+        create(1, "saga01", "saga", "epic01"), // a saga with a parent
+        create(2, "epic01", "epic", "epic02"), // an epic under an epic
+        create(3, "epic02", "epic", ""),       // (a cleared parent folds to none)
+        create(4, "task01", "task", "task02"), // a leaf parenting
+        create(5, "task02", "task", "task02"), // its own parent
+        create(6, "task03", "task", "nope00"), // dangling: not a tier finding
+    ];
+    std::fs::write(repo.rohrpost().join("log.jsonl"), lines.join("\n") + "\n").unwrap();
+
+    let out = repo.run(&["doctor", "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let findings = json::parse(std::str::from_utf8(&out.stdout).unwrap()).unwrap();
+    let tier = findings
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| field(f, "check").as_str() == Some("tier_rule"))
+        .expect("tier_rule finding");
+    assert_eq!(field(tier, "ok"), &Json::Bool(false));
+    let detail = field(tier, "detail").as_str().unwrap();
+    assert!(
+        detail.starts_with("4 parent edge(s) break the tier rule"),
+        "{detail}"
+    );
+    for form in [
+        "TST-saga01 (saga) has parent TST-epic01",
+        "TST-epic01 (epic) has parent TST-epic02 (epic)",
+        "TST-task02 (task) parents TST-task01",
+        "TST-task02 is its own parent",
+    ] {
+        assert!(detail.contains(form), "{detail}");
+    }
+    let report = repo.run(&["doctor"]);
+    assert_eq!(report.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&report.stdout).contains("[XX ] tier_rule"));
+}

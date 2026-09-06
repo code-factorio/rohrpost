@@ -10,8 +10,9 @@
 //!    `status` and `priority` concurrently both win.
 //!
 //! Set fields (`labels`, `blocked_by`) fold `<field>+`/`<field>-` payload keys
-//! as set union/difference so concurrent labelling composes. Readiness and epic
-//! status are derived at query time and never stored.
+//! as set union/difference so concurrent labelling composes. Readiness is
+//! derived at query time, and the status of a parent with children is derived
+//! from its children at the end of every fold (spec §5.5): neither is stored.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
@@ -34,7 +35,9 @@ pub const STATUSES: &[&str] = &[
 /// Terminal statuses: the work is finished one way or the other.
 pub const TERMINAL: &[&str] = &["done", "dropped"];
 /// Ticket types (§5.3).
-pub const TYPES: &[&str] = &["task", "bug", "spike", "epic"];
+pub const TYPES: &[&str] = &["task", "bug", "spike", "epic", "saga"];
+/// The types that may own children (§5.5); the rest are leaves.
+pub const PARENT_TYPES: &[&str] = &["epic", "saga"];
 /// Whole-value fields updated by per-field last-write-wins.
 pub const SCALAR_FIELDS: &[&str] = &[
     "title", "type", "status", "priority", "assignee", "parent", "body",
@@ -55,7 +58,9 @@ pub struct Comment {
 }
 
 /// The folded shape of a ticket (spec §5.3). Ids are **bare**; the display
-/// prefix is applied only at the output layer.
+/// prefix is applied only at the output layer. `status` is the status every
+/// read path shows: the stored one, except for a parent with children, whose
+/// stored status is replaced by the derived one (§5.5) and never surfaces.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ticket {
     pub id: String,
@@ -285,13 +290,15 @@ pub fn fold(events: &[Event]) -> Tickets {
         b.updated = Some(ev.ts.as_str());
         apply_event(b, ev);
     }
-    order
+    let mut tickets: Tickets = order
         .into_iter()
         .map(|tid| {
             let b = builders.remove(tid).expect("builder for every id");
             (tid.to_string(), b.freeze(tid.to_string()))
         })
-        .collect()
+        .collect();
+    apply_derived_status(&mut tickets);
+    tickets
 }
 
 /// Read + fold the whole log.
@@ -300,31 +307,77 @@ pub fn load_tickets(rohrpost_dir: &Path) -> Result<Tickets> {
 }
 
 // ---------------------------------------------------------------------------
-// Derived views (§5.4 readiness, §5.5 epics). Never stored.
+// Derived views (§5.4 readiness, §5.5 parent status). Never stored.
 // ---------------------------------------------------------------------------
-/// Stored status, except for epics with children: `done` when every child is
-/// `done`, otherwise `open`.
-pub fn derive_status(ticket: &Ticket, by_id: &Tickets) -> String {
-    if ticket.kind != "epic" {
-        return ticket.status.clone();
-    }
-    let mut children = by_id
+/// May this type own children?
+pub fn is_parent_type(kind: &str) -> bool {
+    PARENT_TYPES.contains(&kind)
+}
+
+/// The direct children of `id`, in `rp list` order.
+pub fn children_of<'a>(by_id: &'a Tickets, id: &str) -> Vec<&'a Ticket> {
+    let mut children: Vec<&Ticket> = by_id
         .values()
-        .filter(|c| c.parent.as_deref() == Some(&ticket.id))
-        .peekable();
-    if children.peek().is_none() {
-        return ticket.status.clone();
+        .filter(|c| c.parent.as_deref() == Some(id))
+        .collect();
+    sort_tickets(&mut children);
+    children
+}
+
+/// The tier rule bounds the tree at `saga -> epic -> leaf`, so a rollup never
+/// looks further than two tiers down. The bound also keeps the walk finite on
+/// a log where a merge or an older binary broke the rule; `doctor` reports it.
+const MAX_ROLLUP_DEPTH: usize = 2;
+
+/// The §5.5 rollup: `dropped` when every child is dropped, `done` when every
+/// child is settled and one is done, `open` otherwise. A child that is itself
+/// a parent counts by its own derived status. Returns `None` for a ticket
+/// that keeps its stored status (a leaf, or a childless parent).
+fn rollup(ticket: &Ticket, kids: &HashMap<&str, Vec<&Ticket>>, depth: usize) -> Option<String> {
+    if depth == 0 || !is_parent_type(&ticket.kind) {
+        return None;
     }
-    if children.all(|c| c.status == "done") {
-        "done".into()
-    } else {
-        "open".into()
+    let children = kids.get(ticket.id.as_str())?;
+    let mut any_done = false;
+    let mut all_settled = true;
+    for child in children {
+        let status = rollup(child, kids, depth - 1).unwrap_or_else(|| child.status.clone());
+        any_done |= status == "done";
+        all_settled &= TERMINAL.contains(&status.as_str());
+    }
+    Some(
+        match (all_settled, any_done) {
+            (true, false) => "dropped",
+            (true, true) => "done",
+            (false, _) => "open",
+        }
+        .to_string(),
+    )
+}
+
+/// Replace the stored status of every parent with children by its derived one,
+/// so the map every read and write path works from already shows §5.5.
+fn apply_derived_status(tickets: &mut Tickets) {
+    let mut kids: HashMap<&str, Vec<&Ticket>> = HashMap::new();
+    for t in tickets.values() {
+        if let Some(parent) = &t.parent {
+            kids.entry(parent.as_str()).or_default().push(t);
+        }
+    }
+    let derived: Vec<(String, String)> = tickets
+        .values()
+        .filter_map(|t| rollup(t, &kids, MAX_ROLLUP_DEPTH).map(|s| (t.id.clone(), s)))
+        .collect();
+    for (id, status) in derived {
+        if let Some(t) = tickets.get_mut(&id) {
+            t.status = status;
+        }
     }
 }
 
-/// Actionable now: `open`, not an epic, every `blocked_by` is `done`.
+/// Actionable now: `open`, a leaf, every `blocked_by` is `done`.
 pub fn is_ready(ticket: &Ticket, by_id: &Tickets) -> bool {
-    ticket.kind != "epic"
+    !is_parent_type(&ticket.kind)
         && ticket.status == "open"
         && ticket
             .blocked_by
@@ -627,7 +680,7 @@ mod tests {
             ),
         ];
         let tickets = fold(&events);
-        assert_eq!(derive_status(&tickets["epic01"], &tickets), "open");
+        assert_eq!(tickets["epic01"].status, "open", "one child still open");
         assert!(!is_ready(&tickets["epic01"], &tickets));
         assert!(is_ready(&tickets["child2"], &tickets), "blocker is done");
         assert!(!is_ready(&tickets["child3"], &tickets), "blocker is open");
@@ -644,5 +697,79 @@ mod tests {
         let cycle = find_cycle(&fold(&cyclic)).expect("cycle");
         assert_eq!(cycle.first(), cycle.last());
         assert!(cycle.contains(&"child3".to_string()));
+    }
+
+    /// One `saga -> epic -> leaf` fixture per rollup outcome (§5.5).
+    #[test]
+    fn parent_status_rolls_up_over_settled_children_through_both_tiers() {
+        let status = |leaf1: &str, leaf2: &str| {
+            let events = vec![
+                ev(
+                    "A",
+                    "01.000",
+                    "saga01",
+                    "create",
+                    r#","set":{"title":"s","type":"saga"}"#,
+                ),
+                ev(
+                    "B",
+                    "02.000",
+                    "epic01",
+                    "create",
+                    r#","set":{"title":"e","type":"epic","parent":"saga01"}"#,
+                ),
+                ev(
+                    "C",
+                    "03.000",
+                    "leaf01",
+                    "create",
+                    &format!(r#","set":{{"title":"l1","parent":"epic01","status":"{leaf1}"}}"#),
+                ),
+                ev(
+                    "D",
+                    "04.000",
+                    "leaf02",
+                    "create",
+                    &format!(r#","set":{{"title":"l2","parent":"saga01","status":"{leaf2}"}}"#),
+                ),
+            ];
+            let tickets = fold(&events);
+            (
+                tickets["epic01"].status.clone(),
+                tickets["saga01"].status.clone(),
+            )
+        };
+        assert_eq!(
+            status("in_progress", "done"),
+            ("open".into(), "open".into())
+        );
+        assert_eq!(
+            status("done", "dropped"),
+            ("done".into(), "done".into()),
+            "a dropped child settles"
+        );
+        assert_eq!(
+            status("dropped", "done"),
+            ("dropped".into(), "done".into()),
+            "epic rolls up into the saga"
+        );
+        assert_eq!(
+            status("dropped", "dropped"),
+            ("dropped".into(), "dropped".into())
+        );
+
+        // A childless parent keeps its stored status; a leaf is never derived.
+        let lone = fold(&[ev(
+            "A",
+            "01.000",
+            "saga01",
+            "create",
+            r#","set":{"type":"saga","status":"review"}"#,
+        )]);
+        assert_eq!(lone["saga01"].status, "review");
+        assert!(
+            !is_ready(&lone["saga01"], &lone),
+            "sagas never enter the queue"
+        );
     }
 }

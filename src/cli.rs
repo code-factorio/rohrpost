@@ -12,11 +12,11 @@ use std::collections::HashMap;
 use std::io::{IsTerminal, Read as _, Write as _};
 use std::path::PathBuf;
 
-use crate::api::{self, Assignment, Filter, NewTicket, Scalar};
+use crate::api::{self, Assignment, Filter, NewTicket, Node, Scalar};
 use crate::compact;
 use crate::doctor;
 use crate::error::{Error, Result};
-use crate::fold::{DEFAULT_PRIORITY, Shape, Ticket, Tickets, derive_status, ticket_to_json};
+use crate::fold::{DEFAULT_PRIORITY, Shape, Ticket, Tickets, ticket_to_json};
 use crate::ids::render_id;
 use crate::json::{self, Json};
 use crate::paths;
@@ -112,7 +112,11 @@ const SPECS: &[Spec] = &[
                 "NAME",
                 "load defaults from templates/<name>.toml",
             ),
-            value("type", "TYPE", "task | bug | spike | epic (default: task)"),
+            value(
+                "type",
+                "TYPE",
+                "task | bug | spike | epic | saga (default: task)",
+            ),
             Opt {
                 long: "priority",
                 short: Some("p"),
@@ -122,7 +126,7 @@ const SPECS: &[Spec] = &[
             },
             many("label", "LABEL", "label (repeatable)"),
             many("blocked-by", "ID", "ticket id (repeatable)"),
-            value("parent", "ID", "parent epic id"),
+            value("parent", "ID", "parent epic or saga id"),
             value("assignee", "ACTOR", "assignee actor string"),
             value("body", "TEXT", "ticket body / description"),
             BODY_FILE,
@@ -153,7 +157,7 @@ const SPECS: &[Spec] = &[
     },
     Spec {
         name: "tree",
-        help: "an epic and its children",
+        help: "an epic or a saga and its subtree",
         positionals: &[ID_ARG],
         variadic: false,
         options: &[JSON],
@@ -557,14 +561,12 @@ impl Out {
         ticket_to_json(ticket, Some(&self.prefix), Shape::SHORT)
     }
 
-    fn summary(&self, ticket: &Ticket, by_id: &Tickets, status_override: Option<&str>) -> String {
-        let status = status_override
-            .map(str::to_string)
-            .unwrap_or_else(|| derive_status(ticket, by_id));
+    fn summary(&self, ticket: &Ticket, status_override: Option<&str>) -> String {
+        let status = status_override.unwrap_or(&ticket.status);
         format!(
             "{}  [{}]  {}  p{}  {}",
             self.rend(&ticket.id),
-            self.status(&status),
+            self.status(status),
             ticket.kind,
             ticket.priority,
             ticket.title
@@ -733,7 +735,7 @@ fn cmd_ready(parsed: &Parsed) -> Result<i32> {
         emit_line("No actionable work. The tube is empty.");
     } else {
         for t in tickets {
-            emit_line(&ctx.out.summary(t, &by_id, Some("ready")));
+            emit_line(&ctx.out.summary(t, Some("ready")));
         }
     }
     Ok(0)
@@ -763,10 +765,7 @@ fn render_detail(out: &Out, ticket: &Ticket, by_id: &Tickets, include: &str) -> 
         .filter(|s| !s.is_empty())
         .collect();
     let mut text = format!("{}  {}\n", out.rend(&ticket.id), ticket.title);
-    text.push_str(&format!(
-        "  status:   {}\n",
-        out.status(&derive_status(ticket, by_id))
-    ));
+    text.push_str(&format!("  status:   {}\n", out.status(&ticket.status)));
     text.push_str(&format!("  type:     {}\n", ticket.kind));
     text.push_str(&format!("  priority: {}\n", ticket.priority));
     if let Some(assignee) = &ticket.assignee {
@@ -826,18 +825,44 @@ fn cmd_tree(parsed: &Parsed) -> Result<i32> {
     if ctx.out.json {
         emit_json(&Json::Obj(vec![
             ("root".into(), ctx.out.full(tree.root)),
-            (
-                "children".into(),
-                Json::Arr(tree.children.iter().map(|c| ctx.out.short(c)).collect()),
-            ),
+            ("children".into(), tree_json(&ctx.out, &tree.children)),
         ]));
         return Ok(0);
     }
-    emit_line(&ctx.out.summary(tree.root, &by_id, None));
-    for child in tree.children {
-        emit_line(&format!("  {}", ctx.out.summary(child, &by_id, None)));
-    }
+    emit_line(&ctx.out.summary(tree.root, None));
+    tree_text(&ctx.out, &tree.children, 1);
     Ok(0)
+}
+
+/// Short tickets; an epic or saga entry carries its own `children` array,
+/// a leaf entry no such key (§5.5).
+fn tree_json(out: &Out, nodes: &[Node]) -> Json {
+    Json::Arr(
+        nodes
+            .iter()
+            .map(|node| {
+                let mut entry = out.short(node.ticket);
+                if let (Json::Obj(pairs), Some(children)) = (&mut entry, &node.children) {
+                    pairs.push(("children".into(), tree_json(out, children)));
+                }
+                entry
+            })
+            .collect(),
+    )
+}
+
+/// One summary line per node, two spaces of indent per tier.
+fn tree_text(out: &Out, nodes: &[Node], depth: usize) {
+    for node in nodes {
+        emit_line(&format!(
+            "{}{}",
+            "  ".repeat(depth),
+            out.summary(node.ticket, None)
+        ));
+        if let Some(children) = &node.children {
+            tree_text(out, children, depth + 1);
+        }
+    }
 }
 
 fn cmd_list(parsed: &Parsed) -> Result<i32> {
@@ -860,7 +885,7 @@ fn cmd_list(parsed: &Parsed) -> Result<i32> {
         emit_line("No tickets match.");
     } else {
         for t in tickets {
-            emit_line(&ctx.out.summary(t, &by_id, None));
+            emit_line(&ctx.out.summary(t, None));
         }
     }
     Ok(0)

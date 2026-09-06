@@ -9,6 +9,7 @@
 //! Functions take the `.rohrpost/` directory and return bare-id domain objects;
 //! the display prefix is applied only by the CLI.
 
+use std::cell::OnceCell;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -16,10 +17,10 @@ use crate::config::{self, Config};
 use crate::error::{Error, Result};
 use crate::events::Event;
 use crate::fold::{
-    self, DEFAULT_PRIORITY, DEFAULT_TYPE, SET_FIELDS, STATUSES, TYPES, Ticket, Tickets,
-    sort_tickets,
+    self, DEFAULT_PRIORITY, DEFAULT_TYPE, SET_FIELDS, STATUSES, TERMINAL, TYPES, Ticket, Tickets,
+    children_of, is_parent_type, sort_tickets,
 };
-use crate::ids::{new_ticket_id, new_ulid, normalize_id};
+use crate::ids::{new_ticket_id, new_ulid, normalize_id, render_id};
 use crate::json::{self, Json, Key};
 use crate::paths;
 use crate::store;
@@ -38,10 +39,12 @@ pub struct WriteResult {
 // Field assignments (`rp set`).
 // ---------------------------------------------------------------------------
 /// A scalar assignment value: `priority` is an integer, everything else text.
+/// `Null` clears a nullable field (`field=` with an empty value, §5.5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Scalar {
     Str(String),
     Int(i64),
+    Null,
 }
 
 /// One `field=value` / `field+=v,v` / `field-=v,v` directive.
@@ -72,13 +75,16 @@ impl Assignment {
 const SCALAR_FIELD_NAMES: &[&str] = &[
     "title", "type", "status", "priority", "assignee", "parent", "body",
 ];
+/// Scalars an empty `field=` clears.
+const NULLABLE_FIELDS: &[&str] = &["assignee", "parent", "body"];
 
 fn normalise_structural(value: &str) -> Result<String> {
     normalize_id(value).map_err(|e| Error::Ticket(e.message().to_string()))
 }
 
 /// Parse one `field=value` token. `labels+=a,b` adds, `labels-=a` removes,
-/// `priority=1` coerces to an integer.
+/// `priority=1` coerces to an integer, and an empty value on a nullable
+/// scalar (`parent=`) clears it.
 pub fn parse_assignment(token: &str) -> Result<Assignment> {
     let Some((key, raw)) = token.split_once('=') else {
         return Err(Error::Ticket(format!(
@@ -125,6 +131,7 @@ pub fn parse_assignment(token: &str) -> Result<Assignment> {
         return Err(Error::Ticket(format!("unknown field '{key}'")));
     }
     let value = match key {
+        _ if raw.trim().is_empty() && NULLABLE_FIELDS.contains(&key) => Scalar::Null,
         "priority" => Scalar::Int(
             raw.trim()
                 .parse()
@@ -299,6 +306,40 @@ fn resolve<'a>(by_id: &'a Tickets, ticket_ref: &str) -> Result<&'a Ticket> {
     by_id
         .get(&tid)
         .ok_or_else(|| Error::NotFound(format!("no such ticket: {ticket_ref}")))
+}
+
+/// Ids rendered with the repo's display prefix, for error messages only
+/// (§5.5): the config is read on the first id rendered, so the happy path
+/// never pays for it.
+fn id_renderer(rohrpost_dir: &Path) -> impl Fn(&str) -> String {
+    let prefix: OnceCell<String> = OnceCell::new();
+    move |id: &str| {
+        let prefix = prefix.get_or_init(|| config::load_config_or_default(rohrpost_dir).prefix);
+        render_id(prefix, id)
+    }
+}
+
+fn id_list(tickets: &[&Ticket], rend: &dyn Fn(&str) -> String) -> String {
+    tickets
+        .iter()
+        .map(|t| rend(&t.id))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// "1 child" / "3 children".
+fn count(n: usize, singular: &str, plural: &str) -> String {
+    format!("{n} {}", if n == 1 { singular } else { plural })
+}
+
+/// "a task" / "an epic": how the messages name a type.
+fn a_kind(kind: &str) -> String {
+    let article = if kind.starts_with(['a', 'e', 'i', 'o', 'u']) {
+        "an"
+    } else {
+        "a"
+    };
+    format!("{article} {kind}")
 }
 
 fn build_event(ticket: &str, op: &str, actor: &str) -> Result<Event> {
@@ -501,6 +542,20 @@ pub fn create_ticket(rohrpost_dir: &Path, spec: &NewTicket, actor: &str) -> Resu
     }
 
     let existing = load_tickets(rohrpost_dir)?;
+    if let Some(parent) = &spec.parent {
+        let rend = id_renderer(rohrpost_dir);
+        let pid = normalise_structural(parent)?;
+        let parent = existing
+            .get(&pid)
+            .ok_or_else(|| Error::NotFound(format!("no such ticket: {}", rend(&pid))))?;
+        if let Some(reason) = tier_conflict(&spec.kind, Some(parent), &[], true, &rend) {
+            return Err(Error::Ticket(format!(
+                "cannot create {} under {}: {reason}",
+                a_kind(&spec.kind),
+                rend(&pid)
+            )));
+        }
+    }
     let tid = new_id(&existing)?;
     let mut event = build_event(&tid, "create", actor)?;
     event.set = Some(payload);
@@ -511,11 +566,195 @@ pub fn create_ticket(rohrpost_dir: &Path, spec: &NewTicket, actor: &str) -> Resu
 }
 
 // ---------------------------------------------------------------------------
+// The tier rule (§5.5), checked once against the post-write shape.
+// ---------------------------------------------------------------------------
+/// Why `(kind, parent, children)` would break the tier table, or `None` when
+/// it keeps it. `parent_named` says the caller's message already names the
+/// parent id, so the reason repeats it only when the caller does not.
+fn tier_conflict(
+    kind: &str,
+    parent: Option<&Ticket>,
+    children: &[&Ticket],
+    parent_named: bool,
+    rend: &dyn Fn(&str) -> String,
+) -> Option<String> {
+    if let Some(p) = parent {
+        let pid = rend(&p.id);
+        if kind == "saga" {
+            return Some(if parent_named {
+                "a saga has no parent".to_string()
+            } else {
+                format!("a saga has no parent (parent is {pid})")
+            });
+        }
+        if !is_parent_type(&p.kind) {
+            return Some(if parent_named {
+                format!("{} cannot be a parent", a_kind(&p.kind))
+            } else {
+                format!("parent {pid} is {} and cannot be a parent", a_kind(&p.kind))
+            });
+        }
+        if kind == "epic" && p.kind != "saga" {
+            let who = if parent_named {
+                pid
+            } else {
+                format!("parent {pid}")
+            };
+            return Some(format!(
+                "an epic's parent must be a saga ({who} is {})",
+                a_kind(&p.kind)
+            ));
+        }
+    }
+    if children.is_empty() {
+        return None;
+    }
+    if !is_parent_type(kind) {
+        return Some(format!(
+            "it has {} ({})",
+            count(children.len(), "child", "children"),
+            id_list(children, rend)
+        ));
+    }
+    // A saga may parent an epic; an epic may parent neither an epic nor a saga.
+    let deep: Vec<&Ticket> = children
+        .iter()
+        .copied()
+        .filter(|c| is_parent_type(&c.kind) && (kind == "epic" || c.kind == "saga"))
+        .collect();
+    deep.first().map(|first| {
+        format!(
+            "{} cannot parent {} ({})",
+            a_kind(kind),
+            a_kind(&first.kind),
+            id_list(&deep, rend)
+        )
+    })
+}
+
+/// The `type` and `parent` a set of effective assignments leaves the ticket
+/// with, and which of the two the write touches.
+struct PostWrite<'a> {
+    kind: &'a str,
+    parent: Option<&'a str>,
+    type_set: Option<&'a str>,
+    parent_set: bool,
+}
+
+fn post_write_shape<'a>(ticket: &'a Ticket, effective: &'a [Assignment]) -> PostWrite<'a> {
+    let mut shape = PostWrite {
+        kind: &ticket.kind,
+        parent: ticket.parent.as_deref(),
+        type_set: None,
+        parent_set: false,
+    };
+    for a in effective {
+        if let Assignment::Set { field, value } = a {
+            match (field.as_str(), value) {
+                ("type", Scalar::Str(s)) => {
+                    shape.kind = s;
+                    shape.type_set = Some(s);
+                }
+                ("parent", Scalar::Str(s)) => {
+                    shape.parent = Some(s);
+                    shape.parent_set = true;
+                }
+                ("parent", Scalar::Null) => {
+                    shape.parent = None;
+                    shape.parent_set = true;
+                }
+                _ => {}
+            }
+        }
+    }
+    shape
+}
+
+/// Reject a `set` whose post-write shape breaks the tier rule (§5.5). The
+/// parent must resolve; clearing the parent alone can break nothing.
+fn check_tier_on_set(
+    rohrpost_dir: &Path,
+    by_id: &Tickets,
+    ticket: &Ticket,
+    children: &[&Ticket],
+    effective: &[Assignment],
+) -> Result<()> {
+    let shape = post_write_shape(ticket, effective);
+    if shape.type_set.is_none() && !shape.parent_set {
+        return Ok(());
+    }
+    let rend = id_renderer(rohrpost_dir);
+    let action = || match (shape.type_set, shape.parent) {
+        (Some(kind), _) => format!("set type={kind} on {}", rend(&ticket.id)),
+        (None, Some(parent)) => format!("set parent={} on {}", rend(parent), rend(&ticket.id)),
+        (None, None) => format!("set parent= on {}", rend(&ticket.id)),
+    };
+    if shape.parent == Some(ticket.id.as_str()) {
+        return Err(Error::Ticket(format!(
+            "cannot {}: a ticket cannot be its own parent",
+            action()
+        )));
+    }
+    let parent = match shape.parent {
+        Some(pid) => Some(
+            by_id
+                .get(pid)
+                .ok_or_else(|| Error::NotFound(format!("no such ticket: {}", rend(pid))))?,
+        ),
+        None => None,
+    };
+    match tier_conflict(
+        shape.kind,
+        parent,
+        children,
+        shape.type_set.is_none(),
+        &rend,
+    ) {
+        Some(reason) => Err(Error::Ticket(format!("cannot {}: {reason}", action()))),
+        None => Ok(()),
+    }
+}
+
+/// Reject a status write on a parent with children (§5.5): its status is
+/// derived, and the idempotent no-op was already dropped before this runs.
+fn check_status_on_set(
+    rohrpost_dir: &Path,
+    ticket: &Ticket,
+    children: &[&Ticket],
+    effective: &[Assignment],
+    verb: &str,
+) -> Result<()> {
+    let status = effective.iter().find_map(|a| match a {
+        Assignment::Set {
+            field,
+            value: Scalar::Str(s),
+        } if field == "status" => Some(s),
+        _ => None,
+    });
+    let (Some(status), false) = (status, children.is_empty()) else {
+        return Ok(());
+    };
+    let rend = id_renderer(rohrpost_dir);
+    let action = if verb == "claim" {
+        format!("claim {}", rend(&ticket.id))
+    } else {
+        format!("set status={status} on {}", rend(&ticket.id))
+    };
+    Err(Error::Ticket(format!(
+        "cannot {action}: status is derived from its {}",
+        count(children.len(), "child", "children")
+    )))
+}
+
+// ---------------------------------------------------------------------------
 // set / claim / close / drop / comment
 // ---------------------------------------------------------------------------
 /// Does the ticket already hold this scalar value?
 fn scalar_matches(ticket: &Ticket, field: &str, value: &Scalar) -> bool {
     match (field, value) {
+        ("assignee", Scalar::Null) => ticket.assignee.is_none(),
+        ("parent", Scalar::Null) => ticket.parent.is_none(),
+        ("body", Scalar::Null) => ticket.body.is_none(),
         ("priority", Scalar::Int(i)) => *i == ticket.priority,
         ("title", Scalar::Str(s)) => *s == ticket.title,
         ("type", Scalar::Str(s)) => *s == ticket.kind,
@@ -572,6 +811,9 @@ fn validate_assignment(a: &Assignment) -> Result<()> {
                     sorted_list(STATUSES)
                 )));
             }
+            ("title", Scalar::Str(s)) if s.trim().is_empty() => {
+                return Err(Error::Ticket("title must be non-empty".into()));
+            }
             ("type", Scalar::Str(s)) => validate_type(s)?,
             ("priority", Scalar::Int(p)) => validate_priority(*p)?,
             _ => {}
@@ -592,6 +834,10 @@ fn assignments_to_payload(assignments: &[Assignment]) -> Vec<(Key, Json)> {
                 field,
                 value: Scalar::Int(i),
             } => (field.clone().into(), Json::Int(*i)),
+            Assignment::Set {
+                field,
+                value: Scalar::Null,
+            } => (field.clone().into(), Json::Null),
             Assignment::Add { field, values } => (
                 format!("{field}+").into(),
                 json::str_list(values.iter().cloned()),
@@ -605,12 +851,25 @@ fn assignments_to_payload(assignments: &[Assignment]) -> Vec<(Key, Json)> {
 }
 
 /// Apply assignments as one `set` event. Idempotent: assignments already
-/// satisfied are dropped, and nothing is appended when none remain.
+/// satisfied are dropped, and nothing is appended when none remain. A write
+/// that would break the tier rule or set a derived status is rejected whole
+/// (§5.5).
 pub fn set_fields(
     rohrpost_dir: &Path,
     ticket_ref: &str,
     assignments: &[Assignment],
     actor: &str,
+) -> Result<WriteResult> {
+    set_fields_as(rohrpost_dir, ticket_ref, assignments, actor, "set")
+}
+
+/// [`set_fields`] with the verb the rejection names (`set` or `claim`).
+fn set_fields_as(
+    rohrpost_dir: &Path,
+    ticket_ref: &str,
+    assignments: &[Assignment],
+    actor: &str,
+    verb: &str,
 ) -> Result<WriteResult> {
     let by_id = load_tickets(rohrpost_dir)?;
     let ticket = resolve(&by_id, ticket_ref)?;
@@ -627,6 +886,9 @@ pub fn set_fields(
     for a in &effective {
         validate_assignment(a)?;
     }
+    let children = children_of(&by_id, &ticket.id);
+    check_tier_on_set(rohrpost_dir, &by_id, ticket, &children, &effective)?;
+    check_status_on_set(rohrpost_dir, ticket, &children, &effective, verb)?;
     let mut event = build_event(&ticket.id, "set", actor)?;
     event.set = Some(assignments_to_payload(&effective));
     Ok(WriteResult {
@@ -641,7 +903,7 @@ pub fn claim(rohrpost_dir: &Path, ticket_ref: &str, actor: &str) -> Result<Write
         Assignment::set_str("status", "in_progress"),
         Assignment::set_str("assignee", actor),
     ];
-    set_fields(rohrpost_dir, ticket_ref, &assignments, actor)
+    set_fields_as(rohrpost_dir, ticket_ref, &assignments, actor, "claim")
 }
 
 fn terminate(
@@ -658,6 +920,34 @@ fn terminate(
             ticket: ticket.clone(),
             wrote: false,
         });
+    }
+    // A parent with children shows a derived status, so only the no-op above
+    // is accepted on it (§5.5); nothing cascades into the children.
+    let children = children_of(&by_id, &ticket.id);
+    if !children.is_empty() {
+        let rend = id_renderer(rohrpost_dir);
+        let verb = if status == "done" { "close" } else { "drop" };
+        let open: Vec<&Ticket> = children
+            .iter()
+            .copied()
+            .filter(|c| !TERMINAL.contains(&c.status.as_str()))
+            .collect();
+        let reason = if open.is_empty() {
+            format!(
+                "status is derived from its {}",
+                count(children.len(), "child", "children")
+            )
+        } else {
+            format!(
+                "it has {} ({})",
+                count(open.len(), "open child", "open children"),
+                id_list(&open, &rend)
+            )
+        };
+        return Err(Error::Ticket(format!(
+            "cannot {verb} {}: {reason}",
+            rend(&ticket.id)
+        )));
     }
     let mut event = build_event(&ticket.id, "set", actor)?;
     event.set = Some(vec![("status".into(), json::s(status))]);
@@ -770,16 +1060,16 @@ pub fn list_tickets<'a>(by_id: &'a Tickets, filter: &Filter) -> Result<Vec<&'a T
     Ok(out)
 }
 
-/// `--status` matches the derived status; `ready` is the readiness predicate.
+/// `--status` matches the (derived) status; `ready` is the readiness predicate.
 fn status_matches(ticket: &Ticket, by_id: &Tickets, wanted: &str) -> bool {
     if wanted == "ready" {
         fold::is_ready(ticket, by_id)
     } else {
-        fold::derive_status(ticket, by_id) == wanted
+        ticket.status == wanted
     }
 }
 
-/// The actionable work queue (spec §10): `open`, unblocked, non-epic, by priority.
+/// The actionable work queue (spec §10): `open`, unblocked leaves, by priority.
 pub fn ready_tickets(by_id: &Tickets, limit: Option<usize>) -> Result<Vec<&Ticket>> {
     let mut tickets = list_tickets(
         by_id,
@@ -794,20 +1084,40 @@ pub fn ready_tickets(by_id: &Tickets, limit: Option<usize>) -> Result<Vec<&Ticke
     Ok(tickets)
 }
 
-/// An epic and its direct children (one level of nesting, spec §5.5).
+/// A ticket and its whole subtree (spec §5.5): `saga -> epic -> leaf` at most.
 pub struct Tree<'a> {
     pub root: &'a Ticket,
-    pub children: Vec<&'a Ticket>,
+    pub children: Vec<Node<'a>>,
+}
+
+/// One entry below the root. `children` is `Some` on an epic or a saga (empty
+/// when it owns nothing) and `None` on a leaf, so a leaf entry renders without
+/// a `children` key and `tree` on an epic keeps its one-tier shape.
+pub struct Node<'a> {
+    pub ticket: &'a Ticket,
+    pub children: Option<Vec<Node<'a>>>,
 }
 
 pub fn tree<'a>(by_id: &'a Tickets, ticket_ref: &str) -> Result<Tree<'a>> {
     let root = resolve(by_id, ticket_ref)?;
-    let mut children: Vec<&Ticket> = by_id
-        .values()
-        .filter(|c| c.parent.as_deref() == Some(&root.id))
-        .collect();
-    sort_tickets(&mut children);
-    Ok(Tree { root, children })
+    Ok(Tree {
+        root,
+        children: subtree(by_id, &root.id, 1),
+    })
+}
+
+/// The children of `id` as nodes, descending `depth` more tiers. The tier rule
+/// makes one tier below the root's children the deepest a valid log reaches;
+/// the bound keeps the walk finite on a log where a merge broke the rule.
+fn subtree<'a>(by_id: &'a Tickets, id: &str, depth: usize) -> Vec<Node<'a>> {
+    children_of(by_id, id)
+        .into_iter()
+        .map(|ticket| Node {
+            ticket,
+            children: (is_parent_type(&ticket.kind) && depth > 0)
+                .then(|| subtree(by_id, &ticket.id, depth - 1)),
+        })
+        .collect()
 }
 
 /// Raw event history sorted by `(ts, id)`, optionally filtered to one ticket
