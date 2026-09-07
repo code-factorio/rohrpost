@@ -4,7 +4,7 @@ Use this playbook only after the Rohrpost skill reports that
 `scripts/rohrpost` is missing or its installation is incomplete.
 
 On Windows — PowerShell, cmd, or Git Bash — follow
-[`playbooks/windows.md`](windows.md) instead of the steps below: it places
+[`references/windows.md`](windows.md) instead of the steps below: it places
 `rp.exe`, materialises the `.ps1`, `.cmd`, and Git Bash wrappers, and
 validates them with the Windows equivalents of the checks here.
 

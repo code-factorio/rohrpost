@@ -36,8 +36,8 @@ keeps the POSIX default. All of them run the single static `rp` binary at
 
 The wrapper preserves the caller's working directory and validates the local
 installation before invoking Rohrpost. If the wrapper is missing or reports
-that the installation is incomplete, load `playbooks/install-local.md` from
-this skill; on Windows it routes to `playbooks/windows.md`. That playbook asks
+that the installation is incomplete, load `references/install-local.md` from
+this skill; on Windows it routes to `references/windows.md`. That playbook asks
 the user for permission before installing anything. Do not bypass the wrapper
 with a system `rp` or a different checkout.
 
@@ -121,10 +121,9 @@ with the wrong type.
 <rohrpost-skill>/scripts/rohrpost new "Spike: one session record for both flows" --type spike --parent RP-7k2m9q --json   # belongs to the outcome, to no epic
 ```
 
-The shape is `saga → epic → leaf`, and stop: a saga sits under nothing, an epic
-under a saga or nothing, a leaf under any of them or nothing. A `new --parent` or a
-`set type=`/`parent=` that would break it is refused whole, exit 1, with the conflict
-named (`cannot set type=task on RP-x: it has 3 children (...)`); move or drop the
+The shape is `saga → epic → leaf`, and stop. A `new --parent`, `set type=` or
+`set parent=` that would break it is refused whole, exit 1, naming the conflict
+(`cannot set type=task on RP-x: it has 3 children (...)`): move or drop the
 children first.
 
 ## Updating fields

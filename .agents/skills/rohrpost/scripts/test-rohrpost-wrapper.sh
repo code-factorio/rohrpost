@@ -4,7 +4,7 @@ set -euo pipefail
 # Self-test for the bash wrapper template. Both binary names the wrapper may
 # find under the install home's bin/ are driven end to end, so running this
 # under Git Bash on Windows exercises the same resolution path. The PowerShell
-# and cmd wrappers are validated on a real machine by playbooks/windows.md.
+# and cmd wrappers are validated on a real machine by references/windows.md.
 
 skill_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 template="$skill_dir/scripts/rohrpost.template"
